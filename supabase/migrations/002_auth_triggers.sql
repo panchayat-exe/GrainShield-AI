@@ -1,5 +1,6 @@
 -- =============================================================
 -- Migration 002: Auth Triggers — Profile auto-creation and role helpers
+-- Fully Idempotent: safe to run multiple times.
 -- =============================================================
 
 -- -----------------------------------------------
@@ -27,15 +28,14 @@ begin
 end;
 $$;
 
--- Attach trigger to auth.users (only runs on INSERT)
+-- Attach trigger to auth.users (drop if exists first)
+drop trigger if exists on_auth_user_created on auth.users;
 create trigger on_auth_user_created
   after insert on auth.users
   for each row execute function public.handle_new_user();
 
 -- -----------------------------------------------
 -- Function: get current user's role (trusted helper for RLS)
--- SECURITY DEFINER so it can read profiles without recursion.
--- search_path is pinned to prevent search_path injection.
 -- -----------------------------------------------
 create or replace function public.get_my_role()
 returns text
@@ -71,8 +71,6 @@ $$;
 
 -- -----------------------------------------------
 -- Function: promote a user to a role.
--- Must be called by a super_admin (enforced by RLS / function check).
--- This is the ONLY trusted path to escalate roles.
 -- -----------------------------------------------
 create or replace function public.set_user_role(
   target_user_id uuid,
@@ -95,7 +93,4 @@ begin
 end;
 $$;
 
--- Revoke direct execution from non-privileged roles;
--- the function is invoked via the service-role key on the server only.
 revoke all on function public.set_user_role(uuid, user_role) from public, anon, authenticated;
-grant execute on function public.set_user_role(uuid, user_role) to service_role;

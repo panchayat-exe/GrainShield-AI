@@ -1,6 +1,7 @@
 -- =============================================================
 -- Migration 004: Audit Triggers
 -- Automatically insert audit log entries on important events.
+-- Fully Idempotent: safe to run multiple times.
 -- =============================================================
 
 -- -----------------------------------------------
@@ -47,6 +48,7 @@ begin
 end;
 $$;
 
+drop trigger if exists trips_audit_insert on public.trips;
 create trigger trips_audit_insert
   after insert on public.trips
   for each row execute function public.audit_trip_insert();
@@ -75,6 +77,7 @@ begin
 end;
 $$;
 
+drop trigger if exists trips_audit_status on public.trips;
 create trigger trips_audit_status
   after update on public.trips
   for each row execute function public.audit_trip_status_change();
@@ -101,6 +104,7 @@ begin
 end;
 $$;
 
+drop trigger if exists trip_evidence_audit_insert on public.trip_evidence;
 create trigger trip_evidence_audit_insert
   after insert on public.trip_evidence
   for each row execute function public.audit_evidence_insert();
@@ -138,6 +142,7 @@ begin
 end;
 $$;
 
+drop trigger if exists verification_results_audit on public.verification_results;
 create trigger verification_results_audit
   after insert or update on public.verification_results
   for each row execute function public.audit_verification_change();
@@ -164,6 +169,7 @@ begin
 end;
 $$;
 
+drop trigger if exists manual_review_audit_insert on public.manual_review_requests;
 create trigger manual_review_audit_insert
   after insert on public.manual_review_requests
   for each row execute function public.audit_manual_review_insert();
