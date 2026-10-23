@@ -8,7 +8,7 @@ AI-powered photograph verification for food grain transport — Government of Gu
 
 Gujarat State Civil Supplies Corporation Ltd. (GSCSCL) tracks food grain transport from FCI Godowns to Fair Price Shops using a Vehicle Location Tracking System. Roughly 69,000 trip photographs are submitted every month. Manual review of each photograph is slow, inconsistent, and difficult to scale.
 
-GrainShield AI automates this verification process. It checks whether each photograph contains the correct vehicle, a legible registration plate that matches the assigned trip, an appropriate vehicle category, and adequate image quality — then records an auditable decision for every submission.
+GrainShield AI automates this verification process. It checks whether each photograph contains the correct vehicle, a legible registration plate matching the assigned trip, an appropriate vehicle category, and adequate image quality — then records an auditable decision for every submission.
 
 ---
 
@@ -16,23 +16,90 @@ GrainShield AI automates this verification process. It checks whether each photo
 
 ### First Mile
 
-| Step       | Location      | What the driver photographs |
-| ---------- | ------------- | --------------------------- |
-| Trip start | FCI Godown    | Vehicle at departure        |
-| e-POD      | GSCSCL Godown | Vehicle at arrival          |
-
-The AI engine checks the vehicle, registration plate, vehicle category, and image quality.
+| Step | Location | What the driver photographs |
+|------|----------|-----------------------------|
+| Trip start | FCI Godown | Vehicle at departure |
+| e-POD | GSCSCL Godown | Vehicle at arrival |
 
 ### Last Mile
 
-| Step       | Location        | What the driver photographs                 |
-| ---------- | --------------- | ------------------------------------------- |
-| Trip start | GSCSCL Godown   | Vehicle at departure                        |
-| e-POD      | Fair Price Shop | FPS owner/person + FPS identification board |
+| Step | Location | What the driver photographs |
+|------|----------|-----------------------------|
+| Trip start | GSCSCL Godown | Vehicle at departure |
+| e-POD | Fair Price Shop | FPS owner/person + FPS identification board |
 
-The AI engine checks that the correct person and identification board are present, along with applicable image-quality rules.
+Each verification produces one of four outcomes: **Pass**, **Fail**, **Retake**, or **Manual Review**.
 
-Each verification produces one of four outcomes: **Pass**, **Fail**, **Retake** (image quality insufficient), or **Manual Review** (flagged for a human officer).
+---
+
+## Repository Structure
+
+```
+GrainShield-AI/
+├── frontend/                    # Citizen / driver web application
+│   ├── src/
+│   │   ├── routes/              # File-based pages (TanStack Router)
+│   │   │   ├── __root.tsx       # App shell, HTML document
+│   │   │   ├── index.tsx        # / — photograph upload
+│   │   │   ├── processing.tsx   # /processing — live verification status
+│   │   │   ├── result.tsx       # /result — pass confirmation
+│   │   │   ├── failed.tsx       # /failed — manual review request
+│   │   │   ├── trip.tsx         # /trip — trip detail + audit log
+│   │   │   ├── tracking.tsx     # /tracking — GPS sharing
+│   │   │   ├── login.tsx        # /login
+│   │   │   ├── register.tsx     # /register
+│   │   │   ├── forgot-password.tsx
+│   │   │   └── auth/
+│   │   │       └── reset-password.tsx
+│   │   ├── components/
+│   │   │   ├── AppShell.tsx     # Authenticated layout, notification bell
+│   │   │   └── ui/              # shadcn/ui component library
+│   │   ├── hooks/
+│   │   │   ├── use-auth.ts
+│   │   │   ├── use-gps-tracking.ts
+│   │   │   └── use-notifications.ts
+│   │   ├── lib/
+│   │   │   ├── auth/            # signIn, signUp, signOut, resetPassword
+│   │   │   ├── services/        # trips, evidence, verification, tracking, reviews, audit
+│   │   │   ├── supabase/        # Browser client + TypeScript DB types
+│   │   │   └── validation/      # Zod schemas for forms and file uploads
+│   │   └── test/
+│   │       ├── security.test.ts # Input validation + anonymous RLS tests
+│   │       └── app-routing.test.tsx
+│   ├── public/                  # Static assets (favicon, robots.txt)
+│   ├── .env.example             # Environment variable template
+│   ├── package.json
+│   ├── vite.config.ts
+│   ├── tsconfig.json
+│   └── vitest.config.ts
+│
+├── database/                    # Supabase schema and migrations
+│   ├── migrations/
+│   │   ├── 001_core_schema.sql
+│   │   ├── 002_auth_triggers.sql
+│   │   ├── 003_rls_policies.sql
+│   │   ├── 004_audit_triggers.sql
+│   │   └── 005_storage_policies.sql
+│   └── README.md
+│
+├── ai-worker/                   # Verification worker service (Node.js)
+│   ├── src/
+│   │   └── worker.js            # Polls Supabase, calls CV API, writes results
+│   ├── .env.example
+│   ├── package.json
+│   └── README.md
+│
+├── docs/
+│   └── ADMIN_INTEGRATION.md     # Reference for building the future admin dashboard
+│
+├── .github/
+│   ├── workflows/ci.yml         # Lint → type-check → test → build
+│   └── PULL_REQUEST_TEMPLATE.md
+│
+├── .editorconfig
+├── .gitignore
+└── README.md
+```
 
 ---
 
@@ -40,23 +107,23 @@ Each verification produces one of four outcomes: **Pass**, **Fail**, **Retake** 
 
 ```
 ┌─────────────────────────────┐     ┌────────────────────────────────────┐
-│  Citizen / Driver Web App   │     │  Admin Dashboard                   │
-│  (this repository)          │     │  (future — separate frontend)      │
+│  frontend/                  │     │  Admin Dashboard                   │
+│  Citizen / Driver Web App   │     │  (future — separate repository)    │
 │  React 19 · TanStack Start  │     │  Same Supabase project             │
 └──────────────┬──────────────┘     └────────────────┬───────────────────┘
                │                                     │
-               │         Supabase                    │
                ▼                                     ▼
     ┌──────────────────────────────────────────────────────┐
-    │  PostgreSQL · Auth (GoTrue) · Storage · Realtime     │
-    │  Project: umkjdpgxxylckoohnyco.supabase.co           │
+    │  Supabase                                            │
+    │  PostgreSQL · Auth · Storage · Realtime              │
+    │  Migrations: database/migrations/                    │
     └──────────────────────────┬───────────────────────────┘
                                │
                ┌───────────────▼───────────────┐
-               │  GG_USER_BCKED/               │
+               │  ai-worker/                   │
                │  Verification Worker          │
-               │  Node.js · polls pending      │
-               │  verifications · calls CV API │
+               │  Polls pending verifications  │
+               │  Calls CV API · Writes result │
                └───────────────────────────────┘
                                │
                ┌───────────────▼───────────────┐
@@ -65,76 +132,22 @@ Each verification produces one of four outcomes: **Pass**, **Fail**, **Retake** 
                └───────────────────────────────┘
 ```
 
-**Row Level Security** ensures every database query is scoped to the authenticated user. Administrators see all records because their `role` field in the `profiles` table grants broader RLS access — no separate database or schema is required.
-
----
-
-## Repository Structure
-
-```
-GrainGuard-AI/
-├── src/
-│   ├── routes/               # File-based routes (TanStack Router)
-│   │   ├── __root.tsx        # App shell, QueryClient, HTML document
-│   │   ├── index.tsx         # / — photograph upload form
-│   │   ├── processing.tsx    # /processing — real-time verification status
-│   │   ├── result.tsx        # /result — pass confirmation
-│   │   ├── failed.tsx        # /failed — manual review request
-│   │   ├── trip.tsx          # /trip — trip detail and audit history
-│   │   ├── tracking.tsx      # /tracking — GPS sharing
-│   │   ├── login.tsx         # /login
-│   │   ├── register.tsx      # /register
-│   │   ├── forgot-password.tsx
-│   │   └── auth/
-│   │       └── reset-password.tsx
-│   ├── components/
-│   │   ├── AppShell.tsx      # Authenticated layout, notification bell
-│   │   └── ui/               # shadcn/ui component library
-│   ├── hooks/
-│   │   ├── use-auth.ts       # Auth state, profile, sign-out
-│   │   ├── use-gps-tracking.ts
-│   │   └── use-notifications.ts
-│   ├── lib/
-│   │   ├── auth/             # signIn, signUp, signOut, resetPassword
-│   │   ├── services/         # trips, evidence, verification, tracking, reviews, audit
-│   │   ├── supabase/         # Browser client, TypeScript DB types
-│   │   └── validation/       # Zod schemas for all forms and file uploads
-│   └── test/
-│       ├── security.test.ts  # Input validation + anonymous RLS tests
-│       └── app-routing.test.tsx
-├── supabase/migrations/
-│   ├── 001_core_schema.sql   # 7 tables, enums, indexes
-│   ├── 002_auth_triggers.sql # Profile auto-creation, role helpers
-│   ├── 003_rls_policies.sql  # Row Level Security (20 policies)
-│   ├── 004_audit_triggers.sql
-│   └── 005_storage_policies.sql
-├── GG_USER_BCKED/            # AI verification worker (Node.js)
-│   └── src/worker.js
-├── docs/
-│   └── ADMIN_INTEGRATION.md  # Reference for building the future admin dashboard
-├── .github/
-│   ├── workflows/ci.yml
-│   └── PULL_REQUEST_TEMPLATE.md
-├── .env.example
-└── README.md
-```
-
 ---
 
 ## Technology Stack
 
-| Layer               | Technology                                        |
-| ------------------- | ------------------------------------------------- |
-| UI framework        | React 19                                          |
-| Routing + SSR       | TanStack Start · TanStack Router v1.170           |
-| Build tool          | Vite 8                                            |
-| Styling             | Tailwind CSS v4 · shadcn/ui                       |
-| Language            | TypeScript (strict)                               |
-| Forms               | React Hook Form · Zod                             |
-| Data fetching       | TanStack Query v5                                 |
-| Backend             | Supabase (PostgreSQL · Auth · Storage · Realtime) |
-| Verification worker | Node.js 20+ (ESM)                                 |
-| Testing             | Vitest · Testing Library                          |
+| Layer | Technology |
+|-------|-----------|
+| UI framework | React 19 |
+| Routing + SSR | TanStack Start · TanStack Router v1.170 |
+| Build tool | Vite 8 |
+| Styling | Tailwind CSS v4 · shadcn/ui |
+| Language | TypeScript (strict) |
+| Forms | React Hook Form · Zod |
+| Data fetching | TanStack Query v5 |
+| Backend | Supabase (PostgreSQL · Auth · Storage · Realtime) |
+| Verification worker | Node.js 20+ (ESM) |
+| Testing | Vitest · Testing Library |
 
 ---
 
@@ -143,13 +156,13 @@ GrainGuard-AI/
 ### Prerequisites
 
 - Node.js 20 or later
-- A Supabase project with the migrations applied (see below)
+- A Supabase project with migrations applied (see `database/README.md`)
 
-### Setup
+### 1. Clone and install
 
 ```bash
-git clone https://github.com/panchayat-exe/GrainGuard-AI.git
-cd GrainGuard-AI
+git clone https://github.com/panchayat-exe/GrainShield-AI.git
+cd GrainShield-AI/frontend
 npm install
 cp .env.example .env
 # Fill in VITE_SUPABASE_URL and VITE_SUPABASE_PUBLISHABLE_KEY
@@ -158,70 +171,71 @@ npm run dev
 
 The development server starts at **http://localhost:8080**.
 
-> Use `npm run dev`, not `npm run preview`. TanStack Start requires the dev server for SSR — `vite preview` serves static files only and all routes return 404.
+> Use `npm run dev`, not `npm run preview`. TanStack Start requires the dev server for SSR — `vite preview` only serves static files and all routes return 404.
 
-### Available Commands
+### 2. Frontend commands
 
 ```bash
-npm run dev          # Development server (port 8080, SSR, live reload)
+cd frontend
+
+npm run dev          # Development server — http://localhost:8080
 npm run build        # Production build (client + SSR bundles)
-npm run preview      # Preview the production build (static only — limited)
 npm run lint         # ESLint
 npm run format       # Prettier
-npm test             # Unit and anonymous RLS tests
-npm run test:watch   # Vitest in watch mode
+npm test             # Unit + anonymous RLS tests
+npm run test:watch   # Vitest watch mode
+npx tsc --noEmit     # TypeScript type check
 ```
+
+### 3. AI worker
+
+```bash
+cd ai-worker
+cp .env.example .env
+# Fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and CV_* variables
+npm install
+npm start
+```
+
+The worker runs in **mock mode** by default (`CV_PROVIDER=mock`). Set `CV_PROVIDER=http` and supply `CV_API_URL` + `CV_API_KEY` when the CV API is available.
 
 ---
 
 ## Environment Variables
 
-Copy `.env.example` to `.env` and fill in your values:
+### Frontend (`frontend/.env`)
 
 ```env
 VITE_SUPABASE_URL=https://your-project-ref.supabase.co
 VITE_SUPABASE_PUBLISHABLE_KEY=sb_publishable_...
 ```
 
-The publishable key is safe to expose to the browser. It is subject to Row Level Security.
+The publishable key is safe in the browser — it is subject to Row Level Security.
 
-Never add `SUPABASE_SERVICE_ROLE_KEY` to the frontend `.env`. That key belongs only in the `GG_USER_BCKED/.env` file used by the server-side worker.
+### AI Worker (`ai-worker/.env`)
+
+```env
+SUPABASE_URL=https://your-project-ref.supabase.co
+SUPABASE_SERVICE_ROLE_KEY=sb_secret_...   # Server-only — bypasses RLS
+CV_PROVIDER=mock                          # or 'http' for real CV API
+CV_API_URL=                               # Your CV API endpoint
+CV_API_KEY=                               # Your CV API key
+POLL_INTERVAL_MS=15000
+MAX_RETRIES=3
+```
+
+> Never add `SUPABASE_SERVICE_ROLE_KEY` to the frontend `.env` or any `VITE_*` variable.
 
 ---
 
-## Supabase Setup
+## Database Setup
 
-### 1. Apply database migrations
+See `database/README.md` for full instructions. Quick summary:
 
-Open the Supabase Dashboard → SQL Editor and run each file in order:
-
-| File                                           | Purpose                                                     |
-| ---------------------------------------------- | ----------------------------------------------------------- |
-| `supabase/migrations/001_core_schema.sql`      | Creates all 7 tables, enums, and indexes                    |
-| `supabase/migrations/002_auth_triggers.sql`    | Auto-creates user profiles on signup; role helper functions |
-| `supabase/migrations/003_rls_policies.sql`     | 20 Row Level Security policies                              |
-| `supabase/migrations/004_audit_triggers.sql`   | Automatic audit log entries on data changes                 |
-| `supabase/migrations/005_storage_policies.sql` | Private storage bucket access control                       |
-
-All migrations are idempotent — safe to re-run if already applied.
-
-### 2. Create the storage bucket
-
-Dashboard → Storage → New bucket:
-
-- **Name:** `trip-evidence`
-- **Public:** OFF
-
-### 3. Configure Auth redirect URLs
-
-Dashboard → Authentication → URL Configuration → Redirect URLs:
-
-- `http://localhost:8080/auth/reset-password` (development)
-- Your production domain (when deployed)
-
-### 4. Set your super admin account
-
-After registering your account through the app, run in the SQL Editor:
+1. Apply `database/migrations/` files **001 → 005** in order via Supabase SQL Editor.
+2. Create the `trip-evidence` storage bucket (Dashboard → Storage → New bucket, Public: **OFF**).
+3. Add `http://localhost:8080/auth/reset-password` to Auth → URL Configuration → Redirect URLs.
+4. After registering, promote your account to super_admin:
 
 ```sql
 update public.profiles
@@ -231,97 +245,69 @@ where email = 'your-email@example.com';
 
 ---
 
-## Verification Worker
-
-The worker polls Supabase for pending verifications and calls the configured computer vision API.
-
-```bash
-cd GG_USER_BCKED
-cp .env.example .env
-# Fill in SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, and CV_* variables
-npm install
-npm start
-```
-
-The worker is currently in **mock mode** (`CV_PROVIDER=mock`). It marks verifications as `error` rather than producing real pass/fail decisions. Switch to `CV_PROVIDER=http` and supply `CV_API_URL` and `CV_API_KEY` when the computer vision API is available.
-
----
-
 ## Implementation Status
 
-### Phase 1 — Citizen / User Backend (current)
+### Phase 1 — Citizen/User Backend ✅ Complete
 
-| Feature                               | Status   |
-| ------------------------------------- | -------- |
-| User registration and login           | Complete |
-| Password reset via email              | Complete |
-| User profiles                         | Complete |
-| Trip creation and retrieval           | Complete |
-| Photograph upload (private storage)   | Complete |
-| SHA-256 duplicate detection           | Complete |
-| Verification queue (pending record)   | Complete |
-| Real-time verification status updates | Complete |
-| Manual review request submission      | Complete |
-| GPS location sharing                  | Complete |
-| In-app notifications                  | Complete |
-| Audit log (full trail per trip)       | Complete |
-| Row Level Security (user isolation)   | Complete |
-| Anonymous RLS tests                   | Complete |
+| Feature | Status |
+|---------|--------|
+| Auth (register, login, password reset) | ✅ |
+| User profiles | ✅ |
+| Trip creation + retrieval | ✅ |
+| Photograph upload (private storage, SHA-256 dedup) | ✅ |
+| Verification queue (pending record on upload) | ✅ |
+| Real-time verification status (Supabase Realtime) | ✅ |
+| Manual review request submission | ✅ |
+| GPS location sharing | ✅ |
+| In-app notifications | ✅ |
+| Full audit trail per trip | ✅ |
+| Row Level Security (user isolation) | ✅ |
 
-### Phase 2 — AI Integration
+### Phase 2 — AI Integration ⏳ Pending Team B
 
-| Feature                                    | Status           |
-| ------------------------------------------ | ---------------- |
-| Computer vision API connection             | Pending (Team B) |
-| Registration plate OCR                     | Pending (Team B) |
-| Vehicle category classification            | Pending (Team B) |
-| Image quality assessment                   | Pending (Team B) |
+| Feature | Status |
+|---------|--------|
+| Computer vision API connection | Pending (Team B) |
+| Registration plate OCR | Pending (Team B) |
+| Vehicle category classification | Pending (Team B) |
+| Image quality assessment | Pending (Team B) |
 | Pass / Fail / Retake / Manual Review logic | Pending (Team B) |
 
-The worker integration boundary is defined in `docs/ADMIN_INTEGRATION.md` §8. The database schema is already complete — no migrations will be needed when the CV API is connected.
+Integration boundary defined in `docs/ADMIN_INTEGRATION.md` §8. No DB migrations needed.
 
-### Phase 3 — Admin Dashboard
+### Phase 3 — Admin Dashboard ⏳ Pending
 
-| Feature                             | Status                                           |
-| ----------------------------------- | ------------------------------------------------ |
-| Admin frontend                      | Not started (separate repository, separate team) |
-| Admin backend (RLS, role functions) | Complete — same Supabase project                 |
-
-See `docs/ADMIN_INTEGRATION.md` for the complete admin integration reference.
+Admin frontend not yet delivered. Admin backend (RLS, role functions) already complete — same Supabase project. See `docs/ADMIN_INTEGRATION.md`.
 
 ---
 
 ## Team Structure
 
-| Team                 | Members             | Responsibilities                                                 |
-| -------------------- | ------------------- | ---------------------------------------------------------------- |
-| Frontend & Backend   | Aditya, Neel, Vansh | Citizen web app, Supabase backend, admin backend, AI integration |
-| AI Development       | Nidhish, Prathmesh  | Computer vision, OCR, verification decision logic                |
-| Research & Direction | Project lead        | Problem research, UI/UX planning, project coordination           |
-| Presentation         | Disha               | Slides and presentation materials                                |
+| Team | Members | Responsibilities |
+|------|---------|-----------------|
+| Frontend & Backend | Aditya, Neel, Vansh | `frontend/`, `database/`, AI integration |
+| AI Development | Nidhish, Prathmesh | `ai-worker/` CV logic, OCR, decision rules |
+| Research & Direction | Project lead | Problem research, UI/UX, coordination |
+| Presentation | Disha | Slides and presentation materials |
 
 ---
 
 ## Security
 
-- The Supabase publishable key is safe to include in client-side code when Row Level Security is enabled (it is).
-- The service role key must never appear in the frontend, in `VITE_*` variables, or in source control.
-- All evidence photographs are stored in a private bucket. Signed URLs with short expiry are generated server-side.
-- RLS policies prevent any user from reading another user's trips, evidence, or verification results.
-- Admin access is granted by a `role` column in the `profiles` table. Users cannot promote their own role.
-
-To report a security concern, contact the team lead directly.
+- The Supabase publishable key is safe in client-side code when RLS is enabled (it is).
+- `SUPABASE_SERVICE_ROLE_KEY` must only exist in `ai-worker/.env` — never in frontend code or `VITE_*` variables.
+- All evidence photographs are in a private storage bucket. Signed URLs with short expiry are generated server-side.
+- RLS prevents any user from accessing another user's trips, evidence, or results.
+- Admin access is controlled by a `role` column in `profiles`. Users cannot self-promote.
 
 ---
 
 ## Contributing
 
-This is a student project developed under SFIC 2025. External contributions are not accepted during active development.
+This is a student hackathon project (SFIC 2025). External contributions are not accepted.
 
 For team members:
-
 1. Branch from `main`.
-2. Follow the existing naming conventions (`kebab-case` for files, `PascalCase` for components).
-3. Run `npm run lint`, `npm test`, and `npm run build` before opening a pull request.
-4. Never commit `.env` or any file containing real credentials.
-5. Database migrations must be idempotent and numbered sequentially (006, 007, …).
+2. Run `cd frontend && npm run lint && npm test && npm run build` before opening a PR.
+3. Never commit `.env` files or real credentials.
+4. New DB migrations must be numbered sequentially (007, 008, …) and idempotent.
