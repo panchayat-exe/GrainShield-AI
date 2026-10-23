@@ -2,7 +2,10 @@
  * Trip service — typed business operations for creating and reading trips.
  */
 import { supabase } from "@/lib/supabase/client";
-import type { Trip, TripStage } from "@/lib/supabase/types";
+import type { Trip, TripStage, Database } from "@/lib/supabase/types";
+
+type TripInsert = Database["public"]["Tables"]["trips"]["Insert"];
+type TripUpdate = Database["public"]["Tables"]["trips"]["Update"];
 
 /** Find a trip by trip_code that belongs to the current user (RLS enforced). */
 export async function getTripByCode(tripCode: string): Promise<Trip | null> {
@@ -54,15 +57,16 @@ export async function upsertTrip(params: {
   }
 
   // Create new trip
+  const payload: TripInsert = {
+    trip_code: normalizedCode,
+    vehicle_number: vehicleNumber.toUpperCase(),
+    stage,
+    created_by: userId,
+    status: "submitted",
+  };
   const { data, error } = await supabase
     .from("trips")
-    .insert({
-      trip_code: normalizedCode,
-      vehicle_number: vehicleNumber.toUpperCase(),
-      stage,
-      created_by: userId,
-      status: "submitted",
-    })
+    .insert(payload)
     .select()
     .single();
 
@@ -92,7 +96,8 @@ export async function updateTripStatus(
   tripId: string,
   status: Trip["status"],
 ): Promise<{ error: string | null }> {
-  const { error } = await supabase.from("trips").update({ status }).eq("id", tripId);
+  const payload: TripUpdate = { status };
+  const { error } = await supabase.from("trips").update(payload).eq("id", tripId);
 
   if (error) return { error: error.message };
   return { error: null };

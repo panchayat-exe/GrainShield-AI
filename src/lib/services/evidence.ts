@@ -6,7 +6,9 @@
  */
 import { supabase } from "@/lib/supabase/client";
 import { validateFile } from "@/lib/validation";
-import type { TripEvidence, TripStage } from "@/lib/supabase/types";
+import type { TripEvidence, TripStage, Database } from "@/lib/supabase/types";
+
+type EvidenceInsert = Database["public"]["Tables"]["trip_evidence"]["Insert"];
 
 const BUCKET = "trip-evidence";
 
@@ -65,18 +67,19 @@ export async function uploadEvidence(params: {
   }
 
   // Insert DB record only after successful upload
+  const payload: EvidenceInsert = {
+    trip_id: tripId,
+    uploaded_by: userId,
+    stage,
+    storage_path: storagePath,
+    original_filename: file.name,
+    mime_type: file.type,
+    file_size: file.size,
+    checksum,
+  };
   const { data, error: dbError } = await supabase
     .from("trip_evidence")
-    .insert({
-      trip_id: tripId,
-      uploaded_by: userId,
-      stage,
-      storage_path: storagePath,
-      original_filename: file.name,
-      mime_type: file.type,
-      file_size: file.size,
-      checksum,
-    })
+    .insert(payload)
     .select()
     .single();
 

@@ -135,29 +135,35 @@ export interface Database {
       };
       trips: {
         Row: Trip;
-        Insert: Omit<Trip, "id" | "created_at" | "updated_at"> & { id?: string };
+        // All nullable fields are optional on insert
+        Insert: Pick<Trip, "trip_code" | "vehicle_number" | "stage" | "created_by" | "status"> &
+          Partial<Pick<Trip, "id" | "driver_name" | "driver_phone" | "origin" | "destination" | "assigned_to" | "organization_id">>;
         Update: Partial<Omit<Trip, "id" | "created_at" | "created_by">>;
       };
       trip_evidence: {
         Row: TripEvidence;
-        Insert: Omit<TripEvidence, "id" | "uploaded_at"> & { id?: string };
+        // checksum is nullable so optional on insert
+        Insert: Pick<TripEvidence, "trip_id" | "uploaded_by" | "stage" | "storage_path" | "original_filename" | "mime_type" | "file_size"> &
+          Partial<Pick<TripEvidence, "id" | "checksum">>;
         Update: never;
       };
       verification_results: {
         Row: VerificationResult;
-        Insert: Omit<VerificationResult, "id" | "created_at" | "updated_at"> & { id?: string };
+        // All fields except the required ones are optional on insert
+        Insert: Pick<VerificationResult, "trip_id" | "evidence_id" | "status"> &
+          Partial<Omit<VerificationResult, "trip_id" | "evidence_id" | "status" | "created_at" | "updated_at">>;
         Update: Partial<Omit<VerificationResult, "id" | "created_at" | "trip_id" | "evidence_id">>;
       };
       trip_locations: {
         Row: TripLocation;
-        Insert: Omit<TripLocation, "id"> & { id?: string };
+        Insert: Pick<TripLocation, "trip_id" | "uploaded_by" | "latitude" | "longitude" | "source" | "recorded_at"> &
+          Partial<Pick<TripLocation, "id" | "accuracy_meters">>;
         Update: never;
       };
       manual_review_requests: {
         Row: ManualReviewRequest;
-        Insert: Omit<ManualReviewRequest, "id" | "created_at" | "updated_at" | "resolved_at"> & {
-          id?: string;
-        };
+        Insert: Pick<ManualReviewRequest, "trip_id" | "evidence_id" | "requested_by" | "status"> &
+          Partial<Pick<ManualReviewRequest, "id" | "user_notes" | "assigned_reviewer" | "reviewer_notes">>;
         Update: Partial<
           Pick<
             ManualReviewRequest,

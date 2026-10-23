@@ -7,7 +7,9 @@
  * See docs/ADMIN_INTEGRATION.md §8 for how to connect a real AI processor.
  */
 import { supabase } from "@/lib/supabase/client";
-import type { VerificationResult } from "@/lib/supabase/types";
+import type { VerificationResult, Database } from "@/lib/supabase/types";
+
+type VerificationInsert = Database["public"]["Tables"]["verification_results"]["Insert"];
 
 /** Get the latest verification result for a given trip. */
 export async function getLatestVerification(tripId: string): Promise<VerificationResult | null> {
@@ -73,14 +75,15 @@ export async function createPendingVerification(params: {
 }): Promise<{ id: string | null; error: string | null }> {
   const { tripId, evidenceId, expectedPlate } = params;
 
+  const payload: VerificationInsert = {
+    trip_id: tripId,
+    evidence_id: evidenceId,
+    status: "pending",
+    expected_plate: expectedPlate.toUpperCase(),
+  };
   const { data, error } = await supabase
     .from("verification_results")
-    .insert({
-      trip_id: tripId,
-      evidence_id: evidenceId,
-      status: "pending",
-      expected_plate: expectedPlate.toUpperCase(),
-    })
+    .insert(payload)
     .select("id")
     .single();
 

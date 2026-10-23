@@ -152,7 +152,7 @@ function Result() {
         <Row
           label="Vehicle Type"
           value={verification.vehicle_type ?? "—"}
-          tone={verification.vehicle_detected ? "success" : undefined}
+          {...(verification.vehicle_detected ? { tone: "success" as const } : {})}
         />
         <Row label="Image Quality" value={verification.image_quality ?? "—"} tone="success" />
         <Row label="Trip Stage" value={stageName(evidence?.stage ?? trip.stage)} tone="success" />

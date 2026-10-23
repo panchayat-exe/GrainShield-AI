@@ -155,7 +155,7 @@ function Failed() {
   const failureReasons: Array<{
     label: string;
     value: string;
-    tone: "success" | "danger" | "warning" | undefined;
+    tone?: "success" | "danger" | "warning";
   }> = [];
   if (verification.image_quality && verification.image_quality !== "clear") {
     failureReasons.push({
@@ -178,14 +178,12 @@ function Failed() {
     failureReasons.push({
       label: "Detected Plate",
       value: verification.detected_plate,
-      tone: undefined,
     });
   }
   if (verification.expected_plate) {
     failureReasons.push({
       label: "Expected Plate",
       value: verification.expected_plate,
-      tone: undefined,
     });
   }
 
@@ -227,7 +225,7 @@ function Failed() {
 
       <Card title="Failure Reasons">
         {failureReasons.map((r) => (
-          <Row key={r.label} label={r.label} value={r.value} tone={r.tone} />
+          <Row key={r.label} label={r.label} value={r.value} {...(r.tone ? { tone: r.tone } : {})} />
         ))}
         <Row label="Trip Stage" value={stageName(evidence?.stage ?? trip.stage)} />
       </Card>

@@ -36,7 +36,9 @@ const MAX_RETRIES = Number(process.env.MAX_RETRIES ?? "3");
 const PROCESSING_TIMEOUT_MS = Number(process.env.PROCESSING_TIMEOUT_MS ?? "30000");
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  console.error("[worker] FATAL: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env");
+  console.error(
+    "[worker] FATAL: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env",
+  );
   process.exit(1);
 }
 
@@ -103,7 +105,10 @@ async function callHttpProvider(imageBuffer, expectedPlate) {
   formData.append("expected_plate", expectedPlate ?? "");
 
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), PROCESSING_TIMEOUT_MS);
+  const timeout = setTimeout(
+    () => controller.abort(),
+    PROCESSING_TIMEOUT_MS,
+  );
 
   try {
     const response = await fetch(CV_API_URL, {
@@ -150,7 +155,9 @@ async function callCVProvider(imageBuffer, expectedPlate) {
 // Download evidence photograph
 // ------------------------------------
 async function downloadEvidence(storagePath) {
-  const { data, error } = await adminClient.storage.from("trip-evidence").download(storagePath);
+  const { data, error } = await adminClient.storage
+    .from("trip-evidence")
+    .download(storagePath);
 
   if (error || !data) {
     console.error("[worker] Failed to download evidence:", storagePath, error?.message);
@@ -259,7 +266,10 @@ async function processVerification(verification) {
 
   // Update trip status
   if (verStatus !== "error") {
-    await adminClient.from("trips").update({ status: tripStatus }).eq("id", trip_id);
+    await adminClient
+      .from("trips")
+      .update({ status: tripStatus })
+      .eq("id", trip_id);
   }
 
   // Write audit log
@@ -276,7 +286,9 @@ async function processVerification(verification) {
     },
   });
 
-  console.log(`[worker] ✓ Verification ${id} completed: ${verStatus} (${cvResult.decision})`);
+  console.log(
+    `[worker] ✓ Verification ${id} completed: ${verStatus} (${cvResult.decision})`,
+  );
 }
 
 async function failVerification(verificationId, tripId, reason) {

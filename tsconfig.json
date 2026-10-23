@@ -27,7 +27,9 @@
     "noImplicitReturns": true,
     "noPropertyAccessFromIndexSignature": true,
     "noUncheckedIndexedAccess": true,
-    "exactOptionalPropertyTypes": true,
+    // exactOptionalPropertyTypes disabled: @supabase/supabase-js v2 is incompatible with
+    // this flag — it causes .insert()/.update() to resolve to never[] on typed clients.
+    // "exactOptionalPropertyTypes": true,
     "noUncheckedSideEffectImports": true,
     "paths": {
       "@/*": ["./src/*"]

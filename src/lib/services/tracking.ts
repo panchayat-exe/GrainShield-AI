@@ -2,7 +2,9 @@
  * Tracking service — location updates for trips.
  */
 import { supabase } from "@/lib/supabase/client";
-import type { TripLocation } from "@/lib/supabase/types";
+import type { TripLocation, Database } from "@/lib/supabase/types";
+
+type LocationInsert = Database["public"]["Tables"]["trip_locations"]["Insert"];
 
 /** Get all location updates for a trip, newest first. */
 export async function getTripLocations(tripId: string): Promise<TripLocation[]> {
@@ -54,7 +56,7 @@ export async function recordLocation(params: {
     return { error: "Invalid GPS coordinates." };
   }
 
-  const { error } = await supabase.from("trip_locations").insert({
+  const payload: LocationInsert = {
     trip_id: tripId,
     uploaded_by: userId,
     latitude,
@@ -62,7 +64,8 @@ export async function recordLocation(params: {
     accuracy_meters: accuracyMeters ?? null,
     source: "device_gps",
     recorded_at: new Date().toISOString(),
-  });
+  };
+  const { error } = await supabase.from("trip_locations").insert(payload);
 
   if (error) {
     console.error("[tracking] recordLocation:", error.message);

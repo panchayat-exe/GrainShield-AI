@@ -2,8 +2,10 @@
  * Manual review service — submitting and reading review requests.
  */
 import { supabase } from "@/lib/supabase/client";
-import type { ManualReviewRequest } from "@/lib/supabase/types";
+import type { ManualReviewRequest, Database } from "@/lib/supabase/types";
 import { manualReviewSchema } from "@/lib/validation";
+
+type ReviewInsert = Database["public"]["Tables"]["manual_review_requests"]["Insert"];
 
 /** Submit a manual review request for a failed verification. */
 export async function submitManualReview(params: {
@@ -34,15 +36,16 @@ export async function submitManualReview(params: {
     return { request: null, error: "A review request is already pending for this evidence." };
   }
 
+  const payload: ReviewInsert = {
+    trip_id: params.tripId,
+    evidence_id: params.evidenceId,
+    requested_by: params.requestedBy,
+    user_notes: params.notes ?? null,
+    status: "pending",
+  };
   const { data, error } = await supabase
     .from("manual_review_requests")
-    .insert({
-      trip_id: params.tripId,
-      evidence_id: params.evidenceId,
-      requested_by: params.requestedBy,
-      user_notes: params.notes ?? null,
-      status: "pending",
-    })
+    .insert(payload)
     .select()
     .single();
 
