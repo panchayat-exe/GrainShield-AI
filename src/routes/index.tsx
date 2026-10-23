@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+﻿import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
 import { ImageUp, TriangleAlert, Loader2, AlertCircle } from "lucide-react";
 import { AppShell, Card, btn } from "@/components/AppShell";
@@ -204,7 +204,7 @@ function Upload() {
             >
               <option value="">Select Stage</option>
               <option value="first_mile">First Mile</option>
-              <option value="mid_mile">Mid Mile</option>
+              {/* mid_mile: reserved in DB schema for future use; no PS000006 workflow defined */}
               <option value="last_mile">Last Mile</option>
             </select>
           </label>
