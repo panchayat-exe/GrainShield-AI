@@ -225,7 +225,12 @@ function Failed() {
 
       <Card title="Failure Reasons">
         {failureReasons.map((r) => (
-          <Row key={r.label} label={r.label} value={r.value} {...(r.tone ? { tone: r.tone } : {})} />
+          <Row
+            key={r.label}
+            label={r.label}
+            value={r.value}
+            {...(r.tone ? { tone: r.tone } : {})}
+          />
         ))}
         <Row label="Trip Stage" value={stageName(evidence?.stage ?? trip.stage)} />
       </Card>

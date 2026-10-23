@@ -64,11 +64,7 @@ export async function upsertTrip(params: {
     created_by: userId,
     status: "submitted",
   };
-  const { data, error } = await supabase
-    .from("trips")
-    .insert(payload)
-    .select()
-    .single();
+  const { data, error } = await supabase.from("trips").insert(payload).select().single();
 
   if (error) {
     console.error("[trips] upsertTrip insert:", error.message);

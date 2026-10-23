@@ -13,10 +13,11 @@
 import { createBrowserClient } from "@supabase/ssr";
 
 export function createClient() {
-  return createBrowserClient(
-    import.meta.env["VITE_SUPABASE_URL"] as string,
-    import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] as string,
-  );
+  const url =
+    (import.meta.env["VITE_SUPABASE_URL"] as string) || "https://placeholder-project.supabase.co";
+  const key =
+    (import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] as string) || "placeholder-anon-key";
+  return createBrowserClient(url, key);
 }
 
 /** Singleton browser client for use in React components. */
