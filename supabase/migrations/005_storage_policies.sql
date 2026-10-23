@@ -1,9 +1,18 @@
 -- =============================================================
--- Migration 005: Storage — trip-evidence bucket setup
+-- Migration 005: Storage -- trip-evidence bucket setup
 --
 -- Run this AFTER creating the bucket in the Supabase Dashboard:
--- Storage → New Bucket → Name: "trip-evidence" → Public: OFF
+-- Storage -> New Bucket -> Name: "trip-evidence" -> Public: OFF
+--
+-- This script is idempotent: drops existing policies before recreating.
+-- Safe to run multiple times.
 -- =============================================================
+
+-- -----------------------------------------------
+-- Drop existing policies if they exist (safe re-run)
+-- -----------------------------------------------
+drop policy if exists "trip-evidence: authenticated upload own path" on storage.objects;
+drop policy if exists "trip-evidence: authenticated read own" on storage.objects;
 
 -- -----------------------------------------------
 -- Storage RLS Policies for trip-evidence bucket
@@ -32,8 +41,8 @@ create policy "trip-evidence: authenticated read own"
     )
   );
 
--- No delete for regular authenticated users — evidence is immutable
--- Only service_role (via admin operations) can delete
+-- No delete for regular authenticated users -- evidence is immutable.
+-- Only service_role (via admin operations) can delete.
 
 -- -----------------------------------------------
 -- Notes:
