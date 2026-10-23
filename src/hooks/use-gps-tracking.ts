@@ -11,12 +11,7 @@ import { useState, useRef, useCallback } from "react";
 import { recordLocation } from "@/lib/services/tracking";
 
 export type GpsStatus =
-  | "idle"
-  | "requesting"
-  | "active"
-  | "paused"
-  | "error_permission"
-  | "error_unavailable";
+  "idle" | "requesting" | "active" | "paused" | "error_permission" | "error_unavailable";
 
 export interface GpsTrackingState {
   tracking: boolean;
@@ -29,10 +24,7 @@ export interface GpsTrackingState {
 /** Interval between location pushes in milliseconds (30 seconds). */
 const PUSH_INTERVAL_MS = 30_000;
 
-export function useGpsTracking(
-  tripId: string | null,
-  userId: string | null,
-): GpsTrackingState {
+export function useGpsTracking(tripId: string | null, userId: string | null): GpsTrackingState {
   const [gpsStatus, setGpsStatus] = useState<GpsStatus>("idle");
   const [lastError, setLastError] = useState<string | null>(null);
   const watchIdRef = useRef<number | null>(null);

@@ -40,9 +40,7 @@ export function AppShell({
   const [open, setOpen] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
   const { user, profile, loading, signOut } = useAuth();
-  const { notifications, unreadCount, markAllRead, dismiss } = useNotifications(
-    user?.id ?? null,
-  );
+  const { notifications, unreadCount, markAllRead, dismiss } = useNotifications(user?.id ?? null);
   const navigate = useNavigate();
 
   const displayName = profile?.full_name ?? user?.email?.split("@")[0] ?? "Officer";
@@ -179,10 +177,7 @@ export function AppShell({
 
       {/* Notification dropdown panel */}
       {showNotifs && user && (
-        <div
-          className="fixed inset-0 z-30"
-          onClick={() => setShowNotifs(false)}
-        >
+        <div className="fixed inset-0 z-30" onClick={() => setShowNotifs(false)}>
           <div
             className="absolute right-4 top-[88px] z-40 w-80 overflow-hidden rounded-2xl border border-border bg-card shadow-xl"
             onClick={(e) => e.stopPropagation()}
@@ -209,9 +204,7 @@ export function AppShell({
                   >
                     <div className="min-w-0 flex-1">
                       <p className="truncate text-sm font-medium">{n.title}</p>
-                      <p className="truncate text-xs text-muted-foreground">
-                        {n.body}
-                      </p>
+                      <p className="truncate text-xs text-muted-foreground">{n.body}</p>
                     </div>
                     <button
                       onClick={() => dismiss(n.id)}

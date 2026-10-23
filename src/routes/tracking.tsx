@@ -13,11 +13,7 @@ import { AppShell, Card, Row } from "@/components/AppShell";
 import map from "@/assets/map.jpg";
 import { useAuth } from "@/hooks/use-auth";
 import { useGpsTracking } from "@/hooks/use-gps-tracking";
-import {
-  getLatestLocation,
-  getEvidenceForTrip,
-  subscribeToLocations,
-} from "@/lib/services";
+import { getLatestLocation, getEvidenceForTrip, subscribeToLocations } from "@/lib/services";
 import { getSignedUrl } from "@/lib/services/evidence";
 import { formatTimestamp } from "@/lib/services/audit";
 import type { Trip, TripLocation, TripEvidence } from "@/lib/supabase/types";
@@ -40,9 +36,7 @@ function Tracking() {
   const { user } = useAuth();
   const [search, setSearch] = useState("");
   const [trip, setTrip] = useState<Trip | null>(null);
-  const [latestLocation, setLatestLocation] = useState<TripLocation | null>(
-    null,
-  );
+  const [latestLocation, setLatestLocation] = useState<TripLocation | null>(null);
   const [evidence, setEvidence] = useState<TripEvidence | null>(null);
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
@@ -51,8 +45,10 @@ function Tracking() {
   const unsubRef = useRef<(() => void) | null>(null);
 
   // GPS tracking for the current field user
-  const { tracking, gpsStatus, lastError, startTracking, stopTracking } =
-    useGpsTracking(trip?.id ?? null, user?.id ?? null);
+  const { tracking, gpsStatus, lastError, startTracking, stopTracking } = useGpsTracking(
+    trip?.id ?? null,
+    user?.id ?? null,
+  );
 
   async function handleSearch() {
     if (!search.trim() || !user) return;
@@ -83,10 +79,7 @@ function Tracking() {
     const t = data as Trip;
     setTrip(t);
 
-    const [loc, evArr] = await Promise.all([
-      getLatestLocation(t.id),
-      getEvidenceForTrip(t.id),
-    ]);
+    const [loc, evArr] = await Promise.all([getLatestLocation(t.id), getEvidenceForTrip(t.id)]);
     setLatestLocation(loc);
     const ev = evArr[0] ?? null;
     setEvidence(ev);
@@ -112,9 +105,7 @@ function Tracking() {
   }, [stopTracking]);
 
   const tripStatus =
-    trip?.status === "pass" || trip?.status === "completed"
-      ? "Completed"
-      : "On Route";
+    trip?.status === "pass" || trip?.status === "completed" ? "Completed" : "On Route";
 
   // Determine GPS status badge
   const gpsLabel: Record<typeof gpsStatus, string> = {
@@ -229,8 +220,8 @@ function Tracking() {
           {/* GPS Share Location Panel */}
           <Card title="Share My Location">
             <p className="mb-3 text-xs text-muted-foreground">
-              Field officers can share their live GPS position for this trip.
-              Location is pushed every 30 seconds while active.
+              Field officers can share their live GPS position for this trip. Location is pushed
+              every 30 seconds while active.
             </p>
 
             {/* Status badge */}
@@ -258,9 +249,7 @@ function Tracking() {
               <button
                 onClick={startTracking}
                 disabled={
-                  tracking ||
-                  gpsStatus === "requesting" ||
-                  gpsStatus === "error_permission"
+                  tracking || gpsStatus === "requesting" || gpsStatus === "error_permission"
                 }
                 className="flex h-11 items-center justify-center gap-2 rounded-xl bg-success text-sm font-medium text-maroon-foreground disabled:opacity-50"
               >
@@ -291,9 +280,7 @@ function Tracking() {
           >
             <Row label="Trip ID" value={trip.trip_code} />
             <Row label="Vehicle No." value={trip.vehicle_number} />
-            {trip.driver_name && (
-              <Row label="Driver" value={trip.driver_name} />
-            )}
+            {trip.driver_name && <Row label="Driver" value={trip.driver_name} />}
             <Row
               label="Current Location"
               value={
@@ -304,10 +291,7 @@ function Tracking() {
             />
             {latestLocation && (
               <>
-                <Row
-                  label="Last Updated"
-                  value={formatTimestamp(latestLocation.recorded_at)}
-                />
+                <Row label="Last Updated" value={formatTimestamp(latestLocation.recorded_at)} />
                 {latestLocation.accuracy_meters !== null && (
                   <Row
                     label="GPS Accuracy"
@@ -346,9 +330,8 @@ function Tracking() {
           {!latestLocation && (
             <div className="flex items-center gap-2 rounded-xl border border-saffron/50 bg-warning-soft p-3 text-sm text-warning">
               <AlertTriangle className="h-4 w-4 shrink-0" />
-              No live location data yet. Tap &quot;Start Sharing&quot; above to
-              share your GPS position, or wait for location updates from the
-              field device.
+              No live location data yet. Tap &quot;Start Sharing&quot; above to share your GPS
+              position, or wait for location updates from the field device.
             </div>
           )}
         </>
