@@ -1,1 +1,0 @@
-﻿# Normalize line endings* text=auto# Keep binary files as-is*.jpg binary*.png binary*.ico binary*.woff2 binary*.woff binary# Lock files — no diffbun.lock linguist-generated=truepackage-lock.json linguist-generated=truesrc/routeTree.gen.ts linguist-generated=true
