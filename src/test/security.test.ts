@@ -89,40 +89,68 @@ describe("Input validation", () => {
 
   describe("uploadSchema", () => {
     it("rejects empty trip code", () => {
-      const r = uploadSchema.safeParse({ trip_code: "", vehicle_number: "GJ01AB1234", stage: "first_mile" });
+      const r = uploadSchema.safeParse({
+        trip_code: "",
+        vehicle_number: "GJ01AB1234",
+        stage: "first_mile",
+      });
       expect(r.success).toBe(false);
     });
 
     it("rejects invalid trip stage", () => {
-      const r = uploadSchema.safeParse({ trip_code: "TRIP-001", vehicle_number: "GJ01AB1234", stage: "invalid" });
+      const r = uploadSchema.safeParse({
+        trip_code: "TRIP-001",
+        vehicle_number: "GJ01AB1234",
+        stage: "invalid",
+      });
       expect(r.success).toBe(false);
     });
 
     it("rejects mid_mile as a valid stage for upload (only first_mile and last_mile are defined workflows)", () => {
       // mid_mile is kept in schema for extensibility but not a defined PS000006 workflow yet
-      const r = uploadSchema.safeParse({ trip_code: "TRIP-001", vehicle_number: "GJ01AB1234", stage: "mid_mile" });
+      const r = uploadSchema.safeParse({
+        trip_code: "TRIP-001",
+        vehicle_number: "GJ01AB1234",
+        stage: "mid_mile",
+      });
       // mid_mile IS still in the enum so schema accepts it — this test documents that
       // the UI has removed it from the dropdown as an undocumented workflow
       expect(r.success).toBe(true); // schema allows it; UI restricts it
     });
 
     it("accepts valid first_mile upload form", () => {
-      const r = uploadSchema.safeParse({ trip_code: "TRIP-001", vehicle_number: "GJ01AB1234", stage: "first_mile" });
+      const r = uploadSchema.safeParse({
+        trip_code: "TRIP-001",
+        vehicle_number: "GJ01AB1234",
+        stage: "first_mile",
+      });
       expect(r.success).toBe(true);
     });
 
     it("accepts valid last_mile upload form", () => {
-      const r = uploadSchema.safeParse({ trip_code: "TRIP-002", vehicle_number: "GJ01AB1234", stage: "last_mile" });
+      const r = uploadSchema.safeParse({
+        trip_code: "TRIP-002",
+        vehicle_number: "GJ01AB1234",
+        stage: "last_mile",
+      });
       expect(r.success).toBe(true);
     });
 
     it("rejects trip code with special characters", () => {
-      const r = uploadSchema.safeParse({ trip_code: "TRIP<script>", vehicle_number: "GJ01AB1234", stage: "first_mile" });
+      const r = uploadSchema.safeParse({
+        trip_code: "TRIP<script>",
+        vehicle_number: "GJ01AB1234",
+        stage: "first_mile",
+      });
       expect(r.success).toBe(false);
     });
 
     it("rejects vehicle number over 20 chars", () => {
-      const r = uploadSchema.safeParse({ trip_code: "TRIP-001", vehicle_number: "GJ01AB12345678901234X", stage: "first_mile" });
+      const r = uploadSchema.safeParse({
+        trip_code: "TRIP-001",
+        vehicle_number: "GJ01AB12345678901234X",
+        stage: "first_mile",
+      });
       expect(r.success).toBe(false);
     });
   });
@@ -263,17 +291,17 @@ describe.skipIf(!hasUserA)("RLS — Authenticated user owns their data", () => {
   });
 
   it("TEST 7: User A can read their own profile", async () => {
-    const { data, error } = await clientA.from("profiles").select("id, email, role").eq("id", userAId);
+    const { data, error } = await clientA
+      .from("profiles")
+      .select("id, email, role")
+      .eq("id", userAId);
     expect(error).toBeNull();
     expect(data).toHaveLength(1);
     expect(data?.[0]?.id).toBe(userAId);
   });
 
   it("TEST 8: User A cannot escalate their own role via direct UPDATE", async () => {
-    const { error } = await clientA
-      .from("profiles")
-      .update({ role: "admin" })
-      .eq("id", userAId);
+    const { error } = await clientA.from("profiles").update({ role: "admin" }).eq("id", userAId);
     // RLS with_check ensures role cannot be changed from its current value
     // The update either errors or silently no-ops due to the with_check constraint
     if (error) {
@@ -324,7 +352,11 @@ describe.skipIf(!hasUserA)("RLS — Authenticated user owns their data", () => {
     const { data: trips } = await clientA.from("trips").select("id").limit(1);
     if (!trips || trips.length === 0) return;
     const tripId = trips[0]!.id;
-    const { data: evidence } = await clientA.from("trip_evidence").select("id").eq("trip_id", tripId).limit(1);
+    const { data: evidence } = await clientA
+      .from("trip_evidence")
+      .select("id")
+      .eq("trip_id", tripId)
+      .limit(1);
     if (!evidence || evidence.length === 0) return;
 
     const { error } = await clientA.from("verification_results").insert({
@@ -359,8 +391,10 @@ describe.skipIf(!hasBothUsers)("RLS — Cross-user data isolation", () => {
       clientB.auth.signInWithPassword({ email: USER_B_EMAIL, password: USER_B_PASSWORD }),
     ]);
 
-    if (resA.error || !resA.data.user) throw new Error(`User A sign-in failed: ${resA.error?.message}`);
-    if (resB.error || !resB.data.user) throw new Error(`User B sign-in failed: ${resB.error?.message}`);
+    if (resA.error || !resA.data.user)
+      throw new Error(`User A sign-in failed: ${resA.error?.message}`);
+    if (resB.error || !resB.data.user)
+      throw new Error(`User B sign-in failed: ${resB.error?.message}`);
 
     userAId = resA.data.user.id;
   });
@@ -386,7 +420,10 @@ describe.skipIf(!hasBothUsers)("RLS — Cross-user data isolation", () => {
     if (!tripsA || tripsA.length === 0) return;
 
     for (const trip of tripsA) {
-      const { data, error } = await clientB.from("trip_evidence").select("id").eq("trip_id", trip.id);
+      const { data, error } = await clientB
+        .from("trip_evidence")
+        .select("id")
+        .eq("trip_id", trip.id);
       expect(error).toBeNull();
       expect(data).toEqual([]); // User B sees nothing
     }
@@ -407,7 +444,10 @@ describe.skipIf(!hasBothUsers)("RLS — Cross-user data isolation", () => {
     if (!tripsA || tripsA.length === 0) return;
     const tripId = tripsA[0]!.id;
 
-    const { data, error } = await clientB.from("verification_results").select("id").eq("trip_id", tripId);
+    const { data, error } = await clientB
+      .from("verification_results")
+      .select("id")
+      .eq("trip_id", tripId);
     expect(error).toBeNull();
     expect(data).toEqual([]);
   });

@@ -1,78 +1,71 @@
-# GrainShield AI — Backend Worker
+# GrainShield AI — Verification Worker
 
-AI Computer Vision verification worker and backend services for GrainShield AI.
+Server-side Node.js worker that polls Supabase for pending verification jobs, calls the configured computer vision API, and writes results back to the database.
 
-## What this does
+This component is part of the GrainShield AI project (PS000006, Government of Gujarat).
 
-This Node.js worker polls Supabase every 15 seconds for `verification_results` records with `status='pending'`, downloads the private evidence photograph, calls the configured Computer Vision API, and writes the verified result back to Supabase.
+---
+
+## How it works
+
+1. Every 15 seconds (configurable), the worker queries `verification_results` for records with `status = 'pending'`.
+2. For each pending record, it downloads the private evidence photograph via a Supabase signed URL.
+3. It sends the image to the configured CV provider and receives structured verification output.
+4. It updates the `verification_results` record with the outcome (`pass`, `retake`, `manual_review`, or `error`).
+5. It updates the parent trip status and writes an audit log entry.
+
+---
 
 ## Setup
 
 ```bash
-# 1. Copy environment file
 cp .env.example .env
-
-# 2. Fill in your values in .env:
-#    SUPABASE_URL=https://umkjdpgxxylckoohnyco.supabase.co
-#    SUPABASE_SERVICE_ROLE_KEY=eyJ...  (from Dashboard → Settings → API)
-#    CV_PROVIDER=mock  (or 'http' when you have a real endpoint)
-#    CV_API_URL=https://your-cv-api.example.com/verify
-#    CV_API_KEY=your-key
-
-# 3. Install dependencies
+# Fill in the required variables (see below)
 npm install
-
-# 4. Run
-npm start          # production
-npm run dev        # development with auto-reload
+npm start
 ```
 
-## CV Provider Configuration
+### Environment variables
 
-| `CV_PROVIDER` | Behaviour |
-|---|---|
-| `mock` (default) | Marks verifications as `error` with a "not configured" explanation. No fake results. |
-| `http` | Posts the image + expected plate to `CV_API_URL` with Bearer auth. |
+| Variable                    | Required  | Description                                                       |
+| --------------------------- | --------- | ----------------------------------------------------------------- |
+| `SUPABASE_URL`              | Yes       | Your Supabase project URL                                         |
+| `SUPABASE_SERVICE_ROLE_KEY` | Yes       | Service role key — grants full DB access, never expose to browser |
+| `CV_PROVIDER`               | No        | `mock` (default) or `http`                                        |
+| `CV_API_URL`                | If `http` | Base URL of the CV API                                            |
+| `CV_API_KEY`                | If `http` | API key for the CV provider                                       |
+| `POLL_INTERVAL_MS`          | No        | Polling interval in milliseconds (default: 15000)                 |
+| `MAX_RETRIES`               | No        | Max retry attempts per verification (default: 3)                  |
 
-### Expected CV API response format
+---
 
-```json
-{
-  "imageQuality": "clear",
-  "vehicleDetected": true,
-  "detectedPlate": "GJ01AB1234",
-  "plateMatch": true,
-  "vehicleType": "Truck",
-  "confidence": 0.97,
-  "decision": "pass",
-  "explanation": "Plate matches, vehicle detected, clear image.",
-  "processorVersion": "your-model-v1.0",
-  "rawOutput": {}
-}
+## CV Providers
+
+### mock (default)
+
+Does not call any external service. Marks all verifications as `error` with a note that the mock provider is active. Use this during development and before the CV API is available.
+
+### http
+
+Sends a multipart POST request to `CV_API_URL/analyze` with the image file attached. Expects a JSON response with `imageQuality`, `vehicleDetected`, `detectedPlate`, `plateMatch`, `vehicleType`, `confidence`, `decision`, and `explanation` fields.
+
+The CV API integration point is defined in `../docs/ADMIN_INTEGRATION.md` §8.
+
+---
+
+## Development
+
+```bash
+npm run dev     # Start with file watching (auto-restarts on changes)
+npm start       # Start without watching
 ```
 
-`decision` must be one of: `pass` | `retake` | `manual_review` | `error`
+Node.js 20 or later is required. The worker uses `--env-file=.env` to load environment variables — no `dotenv` package is needed.
+
+---
 
 ## Security
 
-- `SUPABASE_SERVICE_ROLE_KEY` bypasses RLS — keep it secret, server-side only
-- Never commit `.env`
-- This worker runs as a trusted system actor; it uses `actor_id: null` in audit logs
-
-## Deployment
-
-Deploy as a long-running Node.js process on any server (Railway, Fly.io, a VPS, etc.).
-
-```bash
-# With PM2
-npm install -g pm2
-pm2 start src/worker.js --name grainshield-worker
-pm2 save
-```
-
-## .gitignore
-
-```
-node_modules/
-.env
-```
+- The service role key bypasses all Row Level Security. Keep it in `.env` only, never in source control.
+- `.env` is already listed in `.gitignore`.
+- The worker never exposes the service role key to the browser or to any log output.
