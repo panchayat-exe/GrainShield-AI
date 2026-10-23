@@ -1,0 +1,14 @@
+# Normalize line endings
+* text=auto
+
+# Keep binary files as-is
+*.jpg binary
+*.png binary
+*.ico binary
+*.woff2 binary
+*.woff binary
+
+# Lock files — no diff
+bun.lock linguist-generated=true
+package-lock.json linguist-generated=true
+src/routeTree.gen.ts linguist-generated=true
