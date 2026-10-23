@@ -37,14 +37,14 @@ export interface Trip {
   id: string;
   trip_code: string;
   vehicle_number: string;
-  driver_name: string | null;
-  driver_phone: string | null;
+  driver_name?: string | null;
+  driver_phone?: string | null;
   stage: TripStage;
-  origin: string | null;
-  destination: string | null;
+  origin?: string | null;
+  destination?: string | null;
   created_by: string;
-  assigned_to: string | null;
-  organization_id: string | null;
+  assigned_to?: string | null;
+  organization_id?: string | null;
   status: TripStatus;
   created_at: string;
   updated_at: string;
@@ -68,20 +68,20 @@ export interface VerificationResult {
   trip_id: string;
   evidence_id: string;
   status: VerificationStatus;
-  image_quality: string | null;
-  vehicle_detected: boolean | null;
-  expected_plate: string | null;
-  detected_plate: string | null;
-  plate_match: boolean | null;
-  vehicle_type: string | null;
-  evidence_checks: Record<string, unknown> | null;
-  confidence: number | null;
-  decision: string | null;
-  explanation: string | null;
-  processor_version: string | null;
-  processing_started_at: string | null;
-  processing_completed_at: string | null;
-  raw_output: Record<string, unknown> | null;
+  image_quality?: string | null;
+  vehicle_detected?: boolean | null;
+  expected_plate?: string | null;
+  detected_plate?: string | null;
+  plate_match?: boolean | null;
+  vehicle_type?: string | null;
+  evidence_checks?: Record<string, unknown> | null;
+  confidence?: number | null;
+  decision?: string | null;
+  explanation?: string | null;
+  processor_version?: string | null;
+  processing_started_at?: string | null;
+  processing_completed_at?: string | null;
+  raw_output?: Record<string, unknown> | null;
   created_at: string;
   updated_at: string;
 }
@@ -102,13 +102,13 @@ export interface ManualReviewRequest {
   trip_id: string;
   evidence_id: string;
   requested_by: string;
-  user_notes: string | null;
+  user_notes?: string | null;
   status: ReviewStatus;
-  assigned_reviewer: string | null;
-  reviewer_notes: string | null;
+  assigned_reviewer?: string | null;
+  reviewer_notes?: string | null;
   created_at: string;
   updated_at: string;
-  resolved_at: string | null;
+  resolved_at?: string | null;
 }
 
 export interface AuditLog {
@@ -135,35 +135,29 @@ export interface Database {
       };
       trips: {
         Row: Trip;
-        // All nullable fields are optional on insert
-        Insert: Pick<Trip, "trip_code" | "vehicle_number" | "stage" | "created_by" | "status"> &
-          Partial<Pick<Trip, "id" | "driver_name" | "driver_phone" | "origin" | "destination" | "assigned_to" | "organization_id">>;
+        Insert: Omit<Trip, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<Trip, "id" | "created_at" | "created_by">>;
       };
       trip_evidence: {
         Row: TripEvidence;
-        // checksum is nullable so optional on insert
-        Insert: Pick<TripEvidence, "trip_id" | "uploaded_by" | "stage" | "storage_path" | "original_filename" | "mime_type" | "file_size"> &
-          Partial<Pick<TripEvidence, "id" | "checksum">>;
+        Insert: Omit<TripEvidence, "id" | "uploaded_at"> & { id?: string };
         Update: never;
       };
       verification_results: {
         Row: VerificationResult;
-        // All fields except the required ones are optional on insert
-        Insert: Pick<VerificationResult, "trip_id" | "evidence_id" | "status"> &
-          Partial<Omit<VerificationResult, "trip_id" | "evidence_id" | "status" | "created_at" | "updated_at">>;
+        Insert: Omit<VerificationResult, "id" | "created_at" | "updated_at"> & { id?: string };
         Update: Partial<Omit<VerificationResult, "id" | "created_at" | "trip_id" | "evidence_id">>;
       };
       trip_locations: {
         Row: TripLocation;
-        Insert: Pick<TripLocation, "trip_id" | "uploaded_by" | "latitude" | "longitude" | "source" | "recorded_at"> &
-          Partial<Pick<TripLocation, "id" | "accuracy_meters">>;
+        Insert: Omit<TripLocation, "id"> & { id?: string };
         Update: never;
       };
       manual_review_requests: {
         Row: ManualReviewRequest;
-        Insert: Pick<ManualReviewRequest, "trip_id" | "evidence_id" | "requested_by" | "status"> &
-          Partial<Pick<ManualReviewRequest, "id" | "user_notes" | "assigned_reviewer" | "reviewer_notes">>;
+        Insert: Omit<ManualReviewRequest, "id" | "created_at" | "updated_at" | "resolved_at"> & {
+          id?: string;
+        };
         Update: Partial<
           Pick<
             ManualReviewRequest,

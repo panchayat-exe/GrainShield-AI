@@ -3,12 +3,17 @@
  * Uses the publishable (anon) key only. Reads cookies for session state.
  *
  * Import from here in any client component that needs Supabase access.
+ *
+ * NOTE: The client is intentionally untyped at the createBrowserClient level.
+ * @supabase/supabase-js v2 resolves .insert()/.update() to `never[]` when the
+ * Database generic is applied alongside exactOptionalPropertyTypes:true.
+ * Instead, all service functions cast return values explicitly using the types
+ * exported from ./types.ts, which keeps type safety without the compiler bug.
  */
 import { createBrowserClient } from "@supabase/ssr";
-import type { Database } from "./types";
 
 export function createClient() {
-  return createBrowserClient<Database>(
+  return createBrowserClient(
     import.meta.env["VITE_SUPABASE_URL"] as string,
     import.meta.env["VITE_SUPABASE_PUBLISHABLE_KEY"] as string,
   );

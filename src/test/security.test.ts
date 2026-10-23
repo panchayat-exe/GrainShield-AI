@@ -24,7 +24,6 @@
  */
 import { describe, it, expect, beforeAll } from "vitest";
 import { createClient } from "@supabase/supabase-js";
-import type { Database } from "@/lib/supabase/types";
 import {
   loginSchema,
   registerSchema,
@@ -32,6 +31,9 @@ import {
   validateFile,
   MAX_FILE_SIZE_BYTES,
 } from "@/lib/validation";
+
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type SupabaseTestClient = ReturnType<typeof createClient<any>>;
 
 // ================================================================
 // A. Unit tests — no Supabase connection needed
@@ -219,10 +221,10 @@ const SUPABASE_ANON_KEY = process.env["VITE_SUPABASE_PUBLISHABLE_KEY"] ?? "";
 const hasSupabase = Boolean(SUPABASE_URL && SUPABASE_ANON_KEY);
 
 describe.skipIf(!hasSupabase)("RLS — Anonymous access (no session)", () => {
-  let anonClient: ReturnType<typeof createClient<Database>>;
+  let anonClient: SupabaseTestClient;
 
   beforeAll(() => {
-    anonClient = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
+    anonClient = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
   });
 
   it("TEST 1: Anonymous client cannot read trips", async () => {
@@ -278,11 +280,11 @@ const USER_A_PASSWORD = process.env["TEST_USER_A_PASSWORD"] ?? "";
 const hasUserA = hasSupabase && Boolean(USER_A_EMAIL && USER_A_PASSWORD);
 
 describe.skipIf(!hasUserA)("RLS — Authenticated user owns their data", () => {
-  let clientA: ReturnType<typeof createClient<Database>>;
+  let clientA: SupabaseTestClient;
   let userAId: string;
 
   beforeAll(async () => {
-    clientA = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
+    clientA = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
     const { data, error } = await clientA.auth.signInWithPassword({
       email: USER_A_EMAIL,
       password: USER_A_PASSWORD,
@@ -379,13 +381,13 @@ const USER_B_PASSWORD = process.env["TEST_USER_B_PASSWORD"] ?? "";
 const hasBothUsers = hasUserA && Boolean(USER_B_EMAIL && USER_B_PASSWORD);
 
 describe.skipIf(!hasBothUsers)("RLS — Cross-user data isolation", () => {
-  let clientA: ReturnType<typeof createClient<Database>>;
-  let clientB: ReturnType<typeof createClient<Database>>;
+  let clientA: SupabaseTestClient;
+  let clientB: SupabaseTestClient;
   let userAId: string;
 
   beforeAll(async () => {
-    clientA = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
-    clientB = createClient<Database>(SUPABASE_URL, SUPABASE_ANON_KEY);
+    clientA = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
+    clientB = createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
 
     const [resA, resB] = await Promise.all([
       clientA.auth.signInWithPassword({ email: USER_A_EMAIL, password: USER_A_PASSWORD }),
