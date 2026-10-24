@@ -5,10 +5,17 @@ const fs = require("fs");
 
 const config = getDefaultConfig(__dirname);
 
-// Windows Metro fallback resolver for platform-specific React Native core modules
+// Windows Metro fallback resolver for platform-specific React Native core modules and path aliases
 config.resolver.resolveRequest = (context, moduleName, platform) => {
+  let targetModuleName = moduleName;
+
+  // Resolve @/ path aliases directly
+  if (targetModuleName.startsWith("@/")) {
+    targetModuleName = path.resolve(__dirname, targetModuleName.slice(2));
+  }
+
   try {
-    return metroResolver.resolve({ ...context, resolveRequest: null }, moduleName, platform);
+    return metroResolver.resolve({ ...context, resolveRequest: null }, targetModuleName, platform);
   } catch (err) {
     const targetPlatform = platform || "android";
     const extensionsToTry = [
@@ -23,7 +30,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     if (context.originModulePath) {
       const originDir = path.dirname(context.originModulePath);
       for (const ext of extensionsToTry) {
-        const candidate = path.resolve(originDir, moduleName + ext);
+        const candidate = path.resolve(originDir, targetModuleName + ext);
         if (fs.existsSync(candidate)) {
           return { type: "sourceFile", filePath: candidate };
         }
@@ -31,7 +38,7 @@ config.resolver.resolveRequest = (context, moduleName, platform) => {
     }
 
     for (const ext of extensionsToTry) {
-      const rnCandidate = path.resolve(__dirname, "node_modules/react-native", moduleName + ext);
+      const rnCandidate = path.resolve(__dirname, "node_modules/react-native", targetModuleName + ext);
       if (fs.existsSync(rnCandidate)) {
         return { type: "sourceFile", filePath: rnCandidate };
       }
