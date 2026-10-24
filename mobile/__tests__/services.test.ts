@@ -38,12 +38,6 @@ jest.mock('../lib/supabase/client', () => ({
   },
 }));
 
-// Mock expo-file-system to avoid native module issues in tests
-jest.mock('expo-file-system', () => ({
-  readAsStringAsync: jest.fn().mockResolvedValue('base64data'),
-  EncodingType: { Base64: 'base64' },
-}));
-
 // ─── Static imports ───────────────────────────────────────────────────────────
 
 import { getTripByCode, listMyTrips, updateTripStatus } from '../lib/services/trips';

@@ -10,6 +10,7 @@ import {
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { AppHeader } from "@/components/AppHeader";
+import { OutboxBanner } from "@/components/OutboxBanner";
 import { Card } from "@/components/Card";
 import { Row } from "@/components/Row";
 import { useAuth } from "@/hooks/use-auth";
@@ -160,6 +161,7 @@ export default function FailedScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <AppHeader />
+      <OutboxBanner />
       <ScrollView contentContainerStyle={styles.content}>
         {/* Fail Banner */}
         <View style={styles.failBanner}>

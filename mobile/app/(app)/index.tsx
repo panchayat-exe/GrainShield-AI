@@ -19,11 +19,13 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
 import { AppHeader } from "@/components/AppHeader";
+import { OutboxBanner } from "@/components/OutboxBanner";
 import { Card } from "@/components/Card";
 import { useAuth } from "@/hooks/use-auth";
 import { upsertTrip } from "@/lib/services/trips";
 import { uploadEvidence } from "@/lib/services/evidence";
 import { createPendingVerification } from "@/lib/services/verification";
+import { saveToOutbox } from "@/lib/offline/outbox";
 import { uploadSchema, validatePhotoAsset } from "@/lib/validation";
 import type { TripStage } from "@/lib/supabase/types";
 import { Colors, FontSizes, Spacing, Radius } from "@/constants/colors";
@@ -37,7 +39,7 @@ const STAGES: { label: string; value: TripStage }[] = [
 
 export default function UploadScreen() {
   const router = useRouter();
-  const { user } = useAuth();
+  const { user, isOffline } = useAuth();
 
   const [tripCode, setTripCode] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
@@ -143,6 +145,55 @@ export default function UploadScreen() {
     }
 
     setSubmitting(true);
+
+    const queueOffline = async () => {
+      const fileName = photo.fileName ?? `photo_${Date.now()}.jpg`;
+      const mimeType = photo.mimeType ?? "image/jpeg";
+      const fileSize = photo.fileSize ?? 0;
+
+      const { item, error: outboxError } = await saveToOutbox({
+        tripCode: parsed.data.trip_code,
+        vehicleNumber: parsed.data.vehicle_number,
+        stage: parsed.data.stage as TripStage,
+        sourcePhotoUri: photo.uri,
+        originalFileName: fileName,
+        mimeType,
+        fileSize,
+      });
+
+      if (outboxError || !item) {
+        setError(outboxError ?? "Failed to save offline evidence.");
+        return;
+      }
+
+      handleReset();
+      Alert.alert(
+        "📦 Saved to Offline Outbox",
+        `Trip ${item.tripCode} and evidence photograph have been stored safely on your device.\n\nWhen internet is restored, tap "Sync Now" in the outbox banner to upload to Supabase cloud.`,
+        [
+          {
+            text: "View Outbox / Processing",
+            onPress: () => {
+              router.push({
+                pathname: "/(app)/processing",
+                params: { outboxId: item.id },
+              });
+            },
+          },
+          { text: "Done" },
+        ]
+      );
+    };
+
+    if (isOffline) {
+      try {
+        await queueOffline();
+      } finally {
+        setSubmitting(false);
+      }
+      return;
+    }
+
     try {
       // 1. Upsert trip
       const { trip, error: tripError } = await upsertTrip({
@@ -152,7 +203,8 @@ export default function UploadScreen() {
         userId: user.id,
       });
       if (tripError || !trip) {
-        setError(tripError ?? "Failed to create trip.");
+        console.warn("[upload] Network trip error, saving to outbox:", tripError);
+        await queueOffline();
         return;
       }
 
@@ -171,7 +223,8 @@ export default function UploadScreen() {
         userId: user.id,
       });
       if (evidenceError || !evidence) {
-        setError(evidenceError ?? "Failed to upload photograph.");
+        console.warn("[upload] Network evidence upload error, saving to outbox:", evidenceError);
+        await queueOffline();
         return;
       }
 
@@ -190,6 +243,9 @@ export default function UploadScreen() {
         pathname: "/(app)/processing",
         params: { tripId: trip.id },
       });
+    } catch (err) {
+      console.warn("[upload] Exception during online submit, falling back to outbox:", err);
+      await queueOffline();
     } finally {
       setSubmitting(false);
     }
@@ -216,6 +272,7 @@ export default function UploadScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <AppHeader />
+      <OutboxBanner />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.pageTitle}>Upload Photo for Verification</Text>
 

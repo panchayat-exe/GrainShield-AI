@@ -9,6 +9,7 @@ import {
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { AppHeader } from "@/components/AppHeader";
+import { OutboxBanner } from "@/components/OutboxBanner";
 import { Card } from "@/components/Card";
 import { Row } from "@/components/Row";
 import { useAuth } from "@/hooks/use-auth";
@@ -115,6 +116,7 @@ export default function TrackingScreen() {
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <AppHeader />
+      <OutboxBanner />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
         <Text style={styles.pageTitle}>Trip Live Tracking</Text>
 
