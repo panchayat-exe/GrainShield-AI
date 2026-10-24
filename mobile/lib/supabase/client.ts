@@ -1,24 +1,12 @@
 /**
  * Supabase client for React Native.
  *
- * Key differences from the web client:
- * - Uses @supabase/supabase-js directly (not @supabase/ssr)
- * - Session stored in expo-secure-store (encrypted native storage)
- * - Requires react-native-url-polyfill
- * - Credentials come from EXPO_PUBLIC_ env vars (safe — anon/publishable key only)
+ * Session persistence uses @react-native-async-storage/async-storage
+ * (recommended by Supabase for React Native to avoid Android Keystore 2048-byte limits).
  */
 import "react-native-url-polyfill/auto";
 import { createClient } from "@supabase/supabase-js";
-import * as SecureStore from "expo-secure-store";
-
-// ---------------------------------------------------------------------------
-// SecureStore adapter for Supabase session persistence
-// ---------------------------------------------------------------------------
-const ExpoSecureStoreAdapter = {
-  getItem: (key: string) => SecureStore.getItemAsync(key),
-  setItem: (key: string, value: string) => SecureStore.setItemAsync(key, value),
-  removeItem: (key: string) => SecureStore.deleteItemAsync(key),
-};
+import AsyncStorage from "@react-native-async-storage/async-storage";
 
 // ---------------------------------------------------------------------------
 // Client
@@ -30,7 +18,7 @@ const supabaseAnonKey =
 
 export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
   auth: {
-    storage: ExpoSecureStoreAdapter,
+    storage: AsyncStorage,
     autoRefreshToken: true,
     persistSession: true,
     detectSessionInUrl: false,
