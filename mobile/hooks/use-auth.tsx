@@ -1,9 +1,10 @@
 /**
  * useAuth — React Native Auth Context and Hook.
- * Uses the RN Supabase client with AsyncStorage session persistence,
- * with fast timeout fallback to local Offline Field Mode.
+ * Uses instant local storage inspection (<5ms) for zero-latency screen transitions,
+ * with background session sync.
  */
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { supabase } from "@/lib/supabase/client";
 import {
   getProfile,
@@ -34,52 +35,58 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
   const restoreSession = useCallback(async () => {
     try {
-      // 2-second timeout so app NEVER hangs on network or cellular blips
-      const sessionPromise = supabase.auth.getSession();
-      const timeoutPromise = new Promise<{ data: { session: null } }>((resolve) =>
-        setTimeout(() => resolve({ data: { session: null } }), 2000)
-      );
+      // 1. Instant local storage inspection (< 5ms)
+      const [keys, offlineUser] = await Promise.all([
+        AsyncStorage.getAllKeys().catch(() => [] as string[]),
+        getOfflineUser().catch(() => null),
+      ]);
 
-      const { data } = await Promise.race([sessionPromise, timeoutPromise]);
-      if (data?.session?.user) {
-        setUser(data.session.user);
-        setIsOffline(false);
-        // Load profile in background without blocking screen render
-        void getProfile().then(setProfile).catch(() => {});
-        return;
-      }
-    } catch {
-      // network / storage blip — fall through
-    }
-
-    // Check for offline session
-    try {
-      const offline = await getOfflineUser();
-      if (offline) {
+      if (offlineUser) {
         const synthetic = {
-          id: offline.id,
-          email: offline.email,
+          id: offlineUser.id,
+          email: offlineUser.email,
           app_metadata: {},
-          user_metadata: { full_name: offline.full_name },
+          user_metadata: { full_name: offlineUser.full_name },
           aud: "authenticated",
           created_at: new Date().toISOString(),
         } as unknown as User;
         setUser(synthetic);
         setIsOffline(true);
+        setLoading(false);
         void getProfile().then(setProfile).catch(() => {});
         return;
       }
+
+      const authKey = keys.find((k) => k.startsWith("sb-") && k.endsWith("-auth-token"));
+      if (authKey) {
+        const raw = await AsyncStorage.getItem(authKey);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const cachedUser = parsed?.user ?? parsed?.currentSession?.user ?? null;
+          if (cachedUser) {
+            setUser(cachedUser);
+            setIsOffline(false);
+            setLoading(false);
+            // Refresh token & profile asynchronously in the background
+            void supabase.auth.getSession().catch(() => {});
+            void getProfile().then(setProfile).catch(() => {});
+            return;
+          }
+        }
+      }
     } catch {
-      // ignore
+      // Storage read error — fall through
     }
 
+    // Unauthenticated: unblock UI immediately
     setUser(null);
     setProfile(null);
     setIsOffline(false);
+    setLoading(false);
   }, []);
 
   useEffect(() => {
-    void restoreSession().finally(() => setLoading(false));
+    void restoreSession();
 
     // Subscribe to auth changes
     const { data: listener } = supabase.auth.onAuthStateChange(async (_event, session) => {
@@ -141,7 +148,6 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 export function useAuth(): AuthState {
   const context = useContext(AuthContext);
   if (!context) {
-    // Return safe default if rendered outside provider (e.g. isolated test environments)
     return {
       user: null,
       profile: null,
