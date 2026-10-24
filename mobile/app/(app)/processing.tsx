@@ -1,9 +1,9 @@
 /**
  * Processing screen — live AI verification status with Offline Outbox support.
- * Uses Supabase Realtime to auto-update when online, or renders the local outbox
- * status when offline with one-tap sync.
+ * Uses active polling fallback + Supabase Realtime to auto-update when online,
+ * or renders the local outbox status when offline with one-tap sync.
  */
-import React, { useEffect, useState, useCallback } from "react";
+import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   View,
   Text,
@@ -13,6 +13,7 @@ import {
   ActivityIndicator,
   Image,
   Alert,
+  RefreshControl,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -46,60 +47,68 @@ export default function ProcessingScreen() {
   const [verification, setVerification] = useState<VerificationResult | null>(null);
   const [tripCode, setTripCode] = useState<string | null>(null);
   const [loadingInitial, setLoadingInitial] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [notFound, setNotFound] = useState(false);
   const [outboxItem, setOutboxItem] = useState<OutboxItem | null>(null);
   const [syncingOutbox, setSyncingOutbox] = useState(false);
+  const hasNavigated = useRef(false);
 
   // Load online trip or outbox item
-  const loadData = useCallback(async () => {
-    setLoadingInitial(true);
+  const loadData = useCallback(async (isManualRefresh = false) => {
+    if (!isManualRefresh) setLoadingInitial(true);
 
-    // 1. If outboxId passed, load from local Outbox
-    if (outboxId) {
-      const items = await getOutboxItems();
-      const match = items.find((i) => i.id === outboxId);
-      if (match) {
-        setOutboxItem(match);
-        setTripCode(match.tripCode);
-        setNotFound(false);
-        setLoadingInitial(false);
+    try {
+      // 1. If outboxId passed, load from local Outbox
+      if (outboxId) {
+        const items = await getOutboxItems();
+        const match = items.find((i) => i.id === outboxId);
+        if (match) {
+          setOutboxItem(match);
+          setTripCode(match.tripCode);
+          setNotFound(false);
+          return;
+        }
+      }
+
+      // 2. If online tripId passed, load from Supabase
+      if (tripId) {
+        const [trip, result] = await Promise.all([
+          getTripById(tripId),
+          getLatestVerification(tripId),
+        ]);
+        if (!trip) {
+          setNotFound(true);
+        } else {
+          setTripCode(trip.trip_code);
+          setNotFound(false);
+        }
+        setVerification(result);
         return;
       }
-    }
 
-    // 2. If online tripId passed, load from Supabase
-    if (tripId) {
-      const [trip, result] = await Promise.all([
-        getTripById(tripId),
-        getLatestVerification(tripId),
-      ]);
-      if (!trip) {
-        setNotFound(true);
-      } else {
-        setTripCode(trip.trip_code);
+      // 3. Fallback: check if any outbox items exist
+      const items = await getOutboxItems();
+      if (items.length > 0) {
+        setOutboxItem(items[0]);
+        setTripCode(items[0].tripCode);
         setNotFound(false);
+        return;
       }
-      setVerification(result);
-      setLoadingInitial(false);
-      return;
-    }
 
-    // 3. Fallback: check if any outbox items exist
-    const items = await getOutboxItems();
-    if (items.length > 0) {
-      setOutboxItem(items[0]);
-      setTripCode(items[0].tripCode);
-      setNotFound(false);
+      setNotFound(true);
+    } finally {
       setLoadingInitial(false);
-      return;
+      setRefreshing(false);
     }
-
-    setNotFound(true);
-    setLoadingInitial(false);
   }, [tripId, outboxId]);
 
   useEffect(() => {
     void loadData();
+  }, [loadData]);
+
+  const handleRefresh = useCallback(() => {
+    setRefreshing(true);
+    void loadData(true);
   }, [loadData]);
 
   // Realtime subscription for online verification
@@ -111,21 +120,46 @@ export default function ProcessingScreen() {
     return unsub;
   }, [tripId]);
 
+  // Active polling fallback: every 2 seconds check Supabase while status is pending or processing
+  useEffect(() => {
+    if (!tripId) return;
+    if (verification && ["pass", "retake", "manual_review", "error"].includes(verification.status)) {
+      return;
+    }
+
+    const interval = setInterval(async () => {
+      try {
+        const latest = await getLatestVerification(tripId);
+        if (latest) {
+          setVerification(latest);
+        }
+      } catch {
+        // Network blips during polling are ignored
+      }
+    }, 2000);
+
+    return () => clearInterval(interval);
+  }, [tripId, verification?.status]);
+
   // Navigate when online verification completes
   useEffect(() => {
-    if (!verification) return;
+    if (!verification || hasNavigated.current) return;
     if (verification.status === "pass") {
-      setTimeout(() => {
+      hasNavigated.current = true;
+      const t = setTimeout(() => {
         router.push({ pathname: "/(app)/result", params: { tripId: tripId ?? "" } });
-      }, 1200);
+      }, 1000);
+      return () => clearTimeout(t);
     } else if (
       verification.status === "retake" ||
       verification.status === "manual_review" ||
       verification.status === "error"
     ) {
-      setTimeout(() => {
+      hasNavigated.current = true;
+      const t = setTimeout(() => {
         router.push({ pathname: "/(app)/failed", params: { tripId: tripId ?? "" } });
-      }, 1200);
+      }, 1000);
+      return () => clearTimeout(t);
     }
   }, [verification, tripId, router]);
 
@@ -173,7 +207,10 @@ export default function ProcessingScreen() {
       <SafeAreaView style={styles.safe} edges={["top"]}>
         <AppHeader />
         <OutboxBanner />
-        <ScrollView contentContainerStyle={styles.content}>
+        <ScrollView
+          contentContainerStyle={styles.content}
+          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        >
           <Text style={styles.pageTitle}>Stored in Offline Outbox</Text>
           <Text style={styles.subtitle}>
             This evidence is stored locally on this phone. Connect to the internet to submit for AI verification.
@@ -237,9 +274,12 @@ export default function ProcessingScreen() {
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <AppHeader />
       <OutboxBanner />
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+      >
         <Text style={styles.pageTitle}>AI Verification in Progress</Text>
-        <Text style={styles.subtitle}>Analyzing your image. Please do not close this screen.</Text>
+        <Text style={styles.subtitle}>Analyzing your image. Results will update automatically.</Text>
 
         {tripCode && (
           <Text style={styles.tripRef}>
@@ -277,7 +317,7 @@ export default function ProcessingScreen() {
             {isDone
               ? status === "pass"
                 ? "Verification Passed ✓"
-                : "Verification Complete"
+                : "Verification Complete — Redirecting..."
               : STEPS[activeStep] ?? "Queued"}
           </Text>
           <View style={styles.progressTrack}>
@@ -286,10 +326,23 @@ export default function ProcessingScreen() {
           <Text style={styles.progressPct}>{progressPct}%</Text>
         </Card>
 
+        {/* Refresh button */}
+        <TouchableOpacity
+          style={styles.refreshButton}
+          onPress={handleRefresh}
+          disabled={refreshing}
+        >
+          {refreshing ? (
+            <ActivityIndicator size="small" color={Colors.info} />
+          ) : (
+            <Text style={styles.refreshButtonText}>🔄 Refresh Status</Text>
+          )}
+        </TouchableOpacity>
+
         {!isDone && status === "pending" && (
           <View style={styles.warningBox}>
             <Text style={styles.warningText}>
-              ⚠ Verification is queued. Results will update automatically once the AI processor runs.
+              ⏳ Verification is queued. The AI processor checks every few seconds.
             </Text>
           </View>
         )}
@@ -354,5 +407,19 @@ const styles = StyleSheet.create({
     color: Colors.saffronForeground,
     fontWeight: "700",
     fontSize: FontSizes.base,
+  },
+  refreshButton: {
+    height: 44,
+    borderRadius: Radius.md,
+    backgroundColor: Colors.card,
+    alignItems: "center",
+    justifyContent: "center",
+    borderWidth: 1,
+    borderColor: Colors.border,
+  },
+  refreshButtonText: {
+    color: Colors.foreground,
+    fontWeight: "600",
+    fontSize: FontSizes.sm,
   },
 });

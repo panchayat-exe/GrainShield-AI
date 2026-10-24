@@ -148,10 +148,16 @@ export default function FailedScreen() {
   if (verification.expected_plate) {
     failureReasons.push({ label: "Expected Plate", value: verification.expected_plate });
   }
-  if (failureReasons.length === 0) {
+  if (verification.explanation) {
+    failureReasons.push({
+      label: "AI Diagnostic",
+      value: verification.explanation,
+      tone: "danger",
+    });
+  } else if (failureReasons.length === 0) {
     failureReasons.push({
       label: "Reason",
-      value: verification.explanation ?? "Verification could not be completed",
+      value: "Verification could not be completed",
       tone: "danger",
     });
   }
