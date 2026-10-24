@@ -1,33 +1,9 @@
 /**
- * Services unit tests — trips, evidence, reviews
- * All Supabase calls are mocked.
+ * Services unit tests — trips, evidence, reviews, verification, tracking, audit
+ * All Supabase calls are mocked; uses static imports.
  */
 
 // ─── Supabase mock ────────────────────────────────────────────────────────────
-
-const mockSelect = jest.fn();
-const mockEq = jest.fn();
-const mockSingle = jest.fn();
-const mockInsert = jest.fn();
-const mockUpdate = jest.fn();
-const mockUpsert = jest.fn();
-const mockStorageUpload = jest.fn();
-const mockStorageCreateSignedUrl = jest.fn();
-
-// Build a chainable mock
-const buildChain = () => {
-  const chain: Record<string, jest.Mock> = {};
-  chain.select = jest.fn(() => chain);
-  chain.eq = jest.fn(() => chain);
-  chain.single = mockSingle;
-  chain.insert = mockInsert;
-  chain.upsert = mockUpsert;
-  chain.update = jest.fn(() => chain);
-  chain.order = jest.fn(() => chain);
-  chain.limit = jest.fn(() => chain);
-  chain.maybeSingle = jest.fn(() => Promise.resolve({ data: null, error: null }));
-  return chain;
-};
 
 jest.mock('../lib/supabase/client', () => ({
   supabase: {
@@ -37,43 +13,70 @@ jest.mock('../lib/supabase/client', () => ({
         error: null,
       }),
     },
-    from: jest.fn(() => buildChain()),
+    from: jest.fn(() => ({
+      select: jest.fn().mockReturnThis(),
+      eq: jest.fn().mockReturnThis(),
+      single: jest.fn().mockResolvedValue({ data: null, error: null }),
+      maybeSingle: jest.fn().mockResolvedValue({ data: null, error: null }),
+      insert: jest.fn().mockResolvedValue({ data: null, error: null }),
+      upsert: jest.fn().mockResolvedValue({ data: null, error: null }),
+      update: jest.fn().mockReturnThis(),
+      order: jest.fn().mockReturnThis(),
+      limit: jest.fn().mockReturnThis(),
+    })),
     storage: {
       from: jest.fn(() => ({
-        upload: mockStorageUpload,
-        createSignedUrl: mockStorageCreateSignedUrl,
+        upload: jest.fn().mockResolvedValue({ data: { path: 'test/path.jpg' }, error: null }),
+        createSignedUrl: jest.fn().mockResolvedValue({ data: { signedUrl: 'https://example.com/test.jpg' }, error: null }),
       })),
     },
+    channel: jest.fn(() => ({
+      on: jest.fn().mockReturnThis(),
+      subscribe: jest.fn(),
+    })),
+    removeChannel: jest.fn(),
   },
 }));
+
+// Mock expo-file-system to avoid native module issues in tests
+jest.mock('expo-file-system', () => ({
+  readAsStringAsync: jest.fn().mockResolvedValue('base64data'),
+  EncodingType: { Base64: 'base64' },
+}));
+
+// ─── Static imports ───────────────────────────────────────────────────────────
+
+import { getTripByCode, listMyTrips, updateTripStatus } from '../lib/services/trips';
+import { uploadEvidence, getEvidenceForTrip } from '../lib/services/evidence';
+import { submitManualReview, getReviewsForTrip } from '../lib/services/reviews';
+import { getLatestVerification, createPendingVerification } from '../lib/services/verification';
+import { recordLocation, getLatestLocation } from '../lib/services/tracking';
+import { auditActionLabel, formatTimestamp } from '../lib/services/audit';
 
 // ─── Trips ────────────────────────────────────────────────────────────────────
 
 describe('trips service', () => {
-  beforeEach(() => jest.clearAllMocks());
-
-  it('getTripByCode: imports without error', async () => {
-    // Just verify the module loads (imports are lazy in Jest)
-    const { getTripByCode } = await import('../lib/services/trips');
+  it('getTripByCode is a function', () => {
     expect(typeof getTripByCode).toBe('function');
   });
 
-  it('listMyTrips: imports without error', async () => {
-    const { listMyTrips } = await import('../lib/services/trips');
+  it('listMyTrips is a function', () => {
     expect(typeof listMyTrips).toBe('function');
+  });
+
+  it('updateTripStatus is a function', () => {
+    expect(typeof updateTripStatus).toBe('function');
   });
 });
 
 // ─── Evidence ─────────────────────────────────────────────────────────────────
 
 describe('evidence service', () => {
-  it('uploadEvidence: imports without error', async () => {
-    const { uploadEvidence } = await import('../lib/services/evidence');
+  it('uploadEvidence is a function', () => {
     expect(typeof uploadEvidence).toBe('function');
   });
 
-  it('getEvidenceForTrip: imports without error', async () => {
-    const { getEvidenceForTrip } = await import('../lib/services/evidence');
+  it('getEvidenceForTrip is a function', () => {
     expect(typeof getEvidenceForTrip).toBe('function');
   });
 });
@@ -81,13 +84,11 @@ describe('evidence service', () => {
 // ─── Reviews ──────────────────────────────────────────────────────────────────
 
 describe('reviews service', () => {
-  it('submitManualReview: imports without error', async () => {
-    const { submitManualReview } = await import('../lib/services/reviews');
+  it('submitManualReview is a function', () => {
     expect(typeof submitManualReview).toBe('function');
   });
 
-  it('getReviewsForTrip: imports without error', async () => {
-    const { getReviewsForTrip } = await import('../lib/services/reviews');
+  it('getReviewsForTrip is a function', () => {
     expect(typeof getReviewsForTrip).toBe('function');
   });
 });
@@ -95,13 +96,11 @@ describe('reviews service', () => {
 // ─── Verification ─────────────────────────────────────────────────────────────
 
 describe('verification service', () => {
-  it('getLatestVerification: imports without error', async () => {
-    const { getLatestVerification } = await import('../lib/services/verification');
+  it('getLatestVerification is a function', () => {
     expect(typeof getLatestVerification).toBe('function');
   });
 
-  it('createPendingVerification: imports without error', async () => {
-    const { createPendingVerification } = await import('../lib/services/verification');
+  it('createPendingVerification is a function', () => {
     expect(typeof createPendingVerification).toBe('function');
   });
 });
@@ -109,13 +108,11 @@ describe('verification service', () => {
 // ─── Tracking ─────────────────────────────────────────────────────────────────
 
 describe('tracking service', () => {
-  it('recordLocation: imports without error', async () => {
-    const { recordLocation } = await import('../lib/services/tracking');
+  it('recordLocation is a function', () => {
     expect(typeof recordLocation).toBe('function');
   });
 
-  it('getLatestLocation: imports without error', async () => {
-    const { getLatestLocation } = await import('../lib/services/tracking');
+  it('getLatestLocation is a function', () => {
     expect(typeof getLatestLocation).toBe('function');
   });
 });
@@ -123,19 +120,27 @@ describe('tracking service', () => {
 // ─── Audit ────────────────────────────────────────────────────────────────────
 
 describe('audit service', () => {
-  it('auditActionLabel: returns human-readable label', async () => {
-    const { auditActionLabel } = await import('../lib/services/audit');
-    // Should return a non-empty string for any known action
+  it('auditActionLabel returns a human-readable label for evidence_uploaded', () => {
     const label = auditActionLabel('evidence_uploaded');
     expect(typeof label).toBe('string');
     expect(label.length).toBeGreaterThan(0);
   });
 
-  it('formatTimestamp: formats ISO date string', async () => {
-    const { formatTimestamp } = await import('../lib/services/audit');
+  it('auditActionLabel returns a non-empty string for unknown actions', () => {
+    const label = auditActionLabel('unknown_action_xyz');
+    expect(typeof label).toBe('string');
+    expect(label.length).toBeGreaterThan(0);
+  });
+
+  it('formatTimestamp formats ISO date string to a non-empty string', () => {
     const ts = '2024-01-15T10:30:00.000Z';
     const formatted = formatTimestamp(ts);
     expect(typeof formatted).toBe('string');
     expect(formatted.length).toBeGreaterThan(0);
+  });
+
+  it('formatTimestamp handles current time without crashing', () => {
+    const ts = new Date().toISOString();
+    expect(() => formatTimestamp(ts)).not.toThrow();
   });
 });

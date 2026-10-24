@@ -46,10 +46,10 @@ describe('upload workflow — file validation', () => {
     }
   });
 
-  it('returns undefined error when valid', () => {
+  it('returns null error when valid', () => {
     const result = validatePhotoAsset({ mimeType: 'image/jpeg', fileSize: 1 * 1024 * 1024 });
     if (result.valid) {
-      expect(result.error).toBeUndefined();
+      expect(result.error).toBeNull();
     }
   });
 });
