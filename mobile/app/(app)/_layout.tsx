@@ -1,8 +1,14 @@
 /**
  * App group layout — bottom tab navigator for authenticated screens.
  */
+import React from "react";
+import { Text } from "react-native";
 import { Tabs } from "expo-router";
 import { Colors, FontSizes } from "@/constants/colors";
+
+function TabIcon({ icon }: { icon: string; color: string }) {
+  return <Text style={{ fontSize: 20 }}>{icon}</Text>;
+}
 
 export default function AppLayout() {
   return (
@@ -47,10 +53,4 @@ export default function AppLayout() {
       />
     </Tabs>
   );
-}
-
-function TabIcon({ icon, color }: { icon: string; color: string }) {
-  // Simple emoji icon — replace with @expo/vector-icons for production
-  const { Text } = require("react-native");
-  return <Text style={{ fontSize: 20 }}>{icon}</Text>;
 }
