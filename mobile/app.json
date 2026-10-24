@@ -1,0 +1,74 @@
+{
+  "expo": {
+    "name": "GrainShield AI",
+    "slug": "grainshield-ai",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "scheme": "grainshield",
+    "userInterfaceStyle": "automatic",
+    "splash": {
+      "image": "./assets/splash.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#7B1D1D"
+    },
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.grainshieldai.citizen",
+      "infoPlist": {
+        "NSCameraUsageDescription": "GrainShield AI needs camera access to capture trip vehicle photographs for verification.",
+        "NSPhotoLibraryUsageDescription": "GrainShield AI needs access to your photo library to select trip vehicle photographs.",
+        "NSLocationWhenInUseUsageDescription": "GrainShield AI uses your location to record your position during grain transport trips.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "GrainShield AI uses your location to track grain transport trip progress."
+      }
+    },
+    "android": {
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#7B1D1D"
+      },
+      "package": "com.grainshieldai.citizen",
+      "permissions": [
+        "android.permission.CAMERA",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION"
+      ]
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/favicon.png"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-secure-store",
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow GrainShield AI to access your camera to capture trip vehicle photographs.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "GrainShield AI uses your location to record your position during grain transport trips.",
+          "locationAlwaysAndWhenInUsePermission": "GrainShield AI uses your location to track grain transport trip progress."
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "GrainShield AI needs access to your photo library to select trip vehicle photographs.",
+          "cameraPermission": "Allow GrainShield AI to access your camera to capture trip vehicle photographs."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": true
+    }
+  }
+}
