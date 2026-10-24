@@ -1,9 +1,11 @@
 /**
  * App group layout — bottom tab navigator for authenticated screens.
+ * Redirects to /(auth)/login if unauthenticated.
  */
 import React from "react";
-import { Text } from "react-native";
-import { Tabs } from "expo-router";
+import { Text, View, ActivityIndicator } from "react-native";
+import { Tabs, Redirect } from "expo-router";
+import { useAuth } from "@/hooks/use-auth";
 import { Colors, FontSizes } from "@/constants/colors";
 
 function TabIcon({ icon }: { icon: string; color: string }) {
@@ -11,6 +13,20 @@ function TabIcon({ icon }: { icon: string; color: string }) {
 }
 
 export default function AppLayout() {
+  const { user, loading } = useAuth();
+
+  if (loading) {
+    return (
+      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: Colors.background }}>
+        <ActivityIndicator size="large" color={Colors.saffron} />
+      </View>
+    );
+  }
+
+  if (!user) {
+    return <Redirect href="/(auth)/login" />;
+  }
+
   return (
     <Tabs
       screenOptions={{
