@@ -42,10 +42,14 @@ export default function RegisterScreen() {
       return;
     }
     setLoading(true);
-    const { error: authError } = await signUp(email, password, fullName);
+    const { error: authError, session } = await signUp(email, password, fullName);
     setLoading(false);
     if (authError) {
       setError(authError);
+      return;
+    }
+    if (session) {
+      router.replace("/(app)");
       return;
     }
     setSuccess(true);
@@ -106,7 +110,8 @@ export default function RegisterScreen() {
                 placeholderTextColor={Colors.mutedForeground}
                 autoComplete={autoComplete}
                 keyboardType={keyboardType}
-                autoCapitalize={keyboardType === "email-address" ? "none" : "words"}
+                autoCapitalize={secure || keyboardType === "email-address" ? "none" : "words"}
+                autoCorrect={!secure && keyboardType !== "email-address"}
                 secureTextEntry={secure}
                 editable={!loading}
               />

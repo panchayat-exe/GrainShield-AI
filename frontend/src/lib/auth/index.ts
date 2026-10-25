@@ -24,13 +24,35 @@ export async function getProfile(): Promise<Profile | null> {
   const user = await getAuthUser();
   if (!user) return null;
 
-  const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-
-  if (error) {
-    console.error("[auth] getProfile error:", error.message);
-    return null;
+  try {
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+    if (error || !data) {
+      return {
+        id: user.id,
+        email: user.email,
+        full_name: user.email.split("@")[0] || "User",
+        phone: null,
+        district: null,
+        organization_id: null,
+        role: "user",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
+    return data as Profile;
+  } catch {
+    return {
+      id: user.id,
+      email: user.email,
+      full_name: user.email.split("@")[0] || "User",
+      phone: null,
+      district: null,
+      organization_id: null,
+      role: "user",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
   }
-  return data as Profile;
 }
 
 /** Signs out the current user. */
@@ -40,7 +62,8 @@ export async function signOut(): Promise<void> {
 
 /** Signs in with email + password. Returns error message on failure. */
 export async function signIn(email: string, password: string): Promise<{ error: string | null }> {
-  const { error } = await supabase.auth.signInWithPassword({ email, password });
+  const cleanEmail = email.trim().toLowerCase();
+  const { error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
   if (error) return { error: error.message };
   return { error: null };
 }
@@ -51,11 +74,13 @@ export async function signUp(
   password: string,
   fullName: string,
 ): Promise<{ error: string | null }> {
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanName = fullName.trim();
   const { error } = await supabase.auth.signUp({
-    email,
+    email: cleanEmail,
     password,
     options: {
-      data: { full_name: fullName },
+      data: { full_name: cleanName },
     },
   });
   if (error) return { error: error.message };
@@ -64,7 +89,8 @@ export async function signUp(
 
 /** Sends a password-reset email. */
 export async function resetPassword(email: string): Promise<{ error: string | null }> {
-  const { error } = await supabase.auth.resetPasswordForEmail(email, {
+  const cleanEmail = email.trim().toLowerCase();
+  const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
     redirectTo: `${window.location.origin}/auth/reset-password`,
   });
   if (error) return { error: error.message };

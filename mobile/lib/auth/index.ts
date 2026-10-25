@@ -1,10 +1,11 @@
 /**
  * Auth helpers for React Native.
  * Same API as web auth/index.ts but using the RN Supabase client,
- * with built-in Offline Field Mode support.
+ * with built-in Offline Field Mode support and resilient fallbacks.
  */
 import { supabase } from "@/lib/supabase/client";
 import type { Profile } from "@/lib/supabase/types";
+import type { User, Session } from "@supabase/supabase-js";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
 export const OFFLINE_AUTH_KEY = "@grainshield_offline_auth";
@@ -89,11 +90,34 @@ export async function getProfile(): Promise<Profile | null> {
   }
 
   try {
-    const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).single();
-    if (error) return null;
+    const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+    if (error || !data) {
+      // Safe fallback from auth metadata so UI never displays blank header
+      return {
+        id: user.id,
+        email: user.email,
+        full_name: user.email.split("@")[0] || "User",
+        phone: null,
+        district: null,
+        organization_id: null,
+        role: "user",
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+    }
     return data as Profile;
   } catch {
-    return null;
+    return {
+      id: user.id,
+      email: user.email,
+      full_name: user.email.split("@")[0] || "User",
+      phone: null,
+      district: null,
+      organization_id: null,
+      role: "user",
+      created_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    };
   }
 }
 
@@ -109,12 +133,13 @@ export async function signOut(): Promise<void> {
 export async function signIn(
   email: string,
   password: string
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; session?: Session | null; user?: User | null }> {
   try {
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
+    const cleanEmail = email.trim().toLowerCase();
+    const { data, error } = await supabase.auth.signInWithPassword({ email: cleanEmail, password });
     if (error) return { error: error.message };
     await disableOfflineMode();
-    return { error: null };
+    return { error: null, session: data.session, user: data.user };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Network connection failed";
     return { error: msg };
@@ -125,15 +150,17 @@ export async function signUp(
   email: string,
   password: string,
   fullName: string
-): Promise<{ error: string | null }> {
+): Promise<{ error: string | null; session?: Session | null; user?: User | null }> {
   try {
-    const { error } = await supabase.auth.signUp({
-      email,
+    const cleanEmail = email.trim().toLowerCase();
+    const cleanName = fullName.trim();
+    const { data, error } = await supabase.auth.signUp({
+      email: cleanEmail,
       password,
-      options: { data: { full_name: fullName } },
+      options: { data: { full_name: cleanName } },
     });
     if (error) return { error: error.message };
-    return { error: null };
+    return { error: null, session: data.session, user: data.user };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Network connection failed";
     return { error: msg };
@@ -146,7 +173,8 @@ export async function signUp(
  */
 export async function resetPassword(email: string): Promise<{ error: string | null }> {
   try {
-    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+    const cleanEmail = email.trim().toLowerCase();
+    const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, {
       redirectTo: "grainshield://auth/reset-password",
     });
     if (error) return { error: error.message };

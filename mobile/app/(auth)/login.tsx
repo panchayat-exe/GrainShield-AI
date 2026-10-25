@@ -125,6 +125,8 @@ export default function LoginScreen() {
           <TextInput
             style={styles.input}
             secureTextEntry
+            autoCapitalize="none"
+            autoCorrect={false}
             autoComplete="current-password"
             value={password}
             onChangeText={setPassword}
