@@ -25,7 +25,11 @@ export async function getProfile(): Promise<Profile | null> {
   if (!user) return null;
 
   try {
-    const { data, error } = await supabase.from("profiles").select("*").eq("id", user.id).maybeSingle();
+    const { data, error } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("id", user.id)
+      .maybeSingle();
     if (error || !data) {
       return {
         id: user.id,
