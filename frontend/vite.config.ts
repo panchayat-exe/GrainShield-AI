@@ -14,6 +14,7 @@ export default defineConfig({
     tsconfigPaths({ projects: ["./tsconfig.json"] }),
   ],
   server: {
+    host: "0.0.0.0",
     port: 8080,
     strictPort: true,
   },
