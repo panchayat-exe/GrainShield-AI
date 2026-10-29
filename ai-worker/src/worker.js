@@ -92,17 +92,59 @@ async function callMockProvider(_imageBuffer, _expectedPlate) {
 }
 
 /**
- * Real HTTP CV provider — calls an external API endpoint.
- * The API must accept multipart/form-data with fields: image, expected_plate.
- * It must return JSON matching the CVResult shape.
- *
- * Swap this for your actual provider (Google Vision, Azure, custom model, etc.)
+ * Validates the response schema from the CV API before applying predictions.
  */
-async function callHttpProvider(imageBuffer, expectedPlate) {
+function validateCVResponse(data) {
+  if (!data || typeof data !== "object") {
+    return {
+      isValid: false,
+      error: "Response is not a valid JSON object",
+    };
+  }
+
+  const validDecisions = ["pass", "retake", "manual_review", "error"];
+  const decision = typeof data.decision === "string" ? data.decision.toLowerCase() : null;
+
+  if (!decision || !validDecisions.includes(decision)) {
+    return {
+      isValid: false,
+      error: `Invalid or missing decision: "${data.decision}"`,
+    };
+  }
+
+  return {
+    isValid: true,
+    result: {
+      success: Boolean(data.success),
+      imageQuality: typeof data.imageQuality === "string" ? data.imageQuality : null,
+      vehicleDetected: typeof data.vehicleDetected === "boolean" ? data.vehicleDetected : null,
+      detectedPlate: typeof data.detectedPlate === "string" ? data.detectedPlate : null,
+      plateMatch: typeof data.plateMatch === "boolean" ? data.plateMatch : null,
+      vehicleType: typeof data.vehicleType === "string" ? data.vehicleType : null,
+      confidence: typeof data.confidence === "number" ? Math.max(0, Math.min(1, data.confidence)) : null,
+      decision,
+      explanation: typeof data.explanation === "string" ? data.explanation : "Verification completed.",
+      processorVersion: typeof data.processorVersion === "string" ? data.processorVersion : "grainshield-worker-v1",
+      evidenceChecks: (data.evidenceChecks && typeof data.evidenceChecks === "object") ? data.evidenceChecks : null,
+      rawOutput: (data.rawOutput && typeof data.rawOutput === "object") ? data.rawOutput : null,
+      error: typeof data.error === "string" ? data.error : null,
+    },
+  };
+}
+
+/**
+ * Real HTTP CV provider — calls the Python inference service endpoint.
+ * The API accepts multipart/form-data with fields: image, expected_plate, stage.
+ * It returns structured JSON adhering to the CVResult shape.
+ */
+async function callHttpProvider(imageBuffer, expectedPlate, stage) {
   const formData = new FormData();
   const blob = new Blob([imageBuffer], { type: "image/jpeg" });
   formData.append("image", blob, "evidence.jpg");
   formData.append("expected_plate", expectedPlate ?? "");
+  if (stage) {
+    formData.append("stage", stage);
+  }
 
   const controller = new AbortController();
   const timeout = setTimeout(
@@ -111,44 +153,86 @@ async function callHttpProvider(imageBuffer, expectedPlate) {
   );
 
   try {
+    const headers = {};
+    if (CV_API_KEY) {
+      headers["Authorization"] = `Bearer ${CV_API_KEY}`;
+    }
+
     const response = await fetch(CV_API_URL, {
       method: "POST",
-      headers: { Authorization: `Bearer ${CV_API_KEY}` },
+      headers,
       body: formData,
       signal: controller.signal,
     });
     clearTimeout(timeout);
 
     if (!response.ok) {
+      const errBody = await response.text().catch(() => "");
       return {
         success: false,
-        decision: "error",
-        explanation: `CV API returned HTTP ${response.status}`,
+        imageQuality: null,
+        vehicleDetected: null,
+        detectedPlate: null,
+        plateMatch: null,
+        vehicleType: null,
+        confidence: null,
+        decision: "manual_review",
+        explanation: `CV API returned HTTP ${response.status}: ${errBody.slice(0, 100)}`,
         processorVersion: "http-provider",
+        evidenceChecks: null,
+        rawOutput: null,
         error: `HTTP ${response.status}`,
       };
     }
 
     const json = await response.json();
-    return { success: true, processorVersion: "http-provider-v1", ...json };
+    const validation = validateCVResponse(json);
+    if (!validation.isValid) {
+      console.warn(`[worker] CV response schema validation failed: ${validation.error}`);
+      return {
+        success: false,
+        imageQuality: null,
+        vehicleDetected: null,
+        detectedPlate: null,
+        plateMatch: null,
+        vehicleType: null,
+        confidence: null,
+        decision: "manual_review",
+        explanation: `CV API returned invalid schema: ${validation.error}. Routed to manual review.`,
+        processorVersion: "http-provider",
+        evidenceChecks: null,
+        rawOutput: json,
+        error: validation.error,
+      };
+    }
+
+    return validation.result;
   } catch (err) {
     clearTimeout(timeout);
     const msg = err instanceof Error ? err.message : String(err);
     return {
       success: false,
+      imageQuality: null,
+      vehicleDetected: null,
+      detectedPlate: null,
+      plateMatch: null,
+      vehicleType: null,
+      confidence: null,
       decision: "error",
       explanation: `CV API call failed: ${msg}`,
       processorVersion: "http-provider",
+      evidenceChecks: null,
+      rawOutput: null,
       error: msg,
     };
   }
 }
 
-async function callCVProvider(imageBuffer, expectedPlate) {
+async function callCVProvider(imageBuffer, expectedPlate, stage) {
   if (CV_PROVIDER === "mock" || !CV_API_URL) {
     return callMockProvider(imageBuffer, expectedPlate);
   }
-  return callHttpProvider(imageBuffer, expectedPlate);
+  return callHttpProvider(imageBuffer, expectedPlate, stage);
 }
 
 // ------------------------------------
@@ -190,10 +274,21 @@ async function processVerification(verification) {
     return; // Another worker may have picked it up
   }
 
-  // Fetch evidence storage path
+  // Fetch parent trip to obtain the actual assigned vehicle number and stage
+  const { data: tripRow, error: tripErr } = await adminClient
+    .from("trips")
+    .select("vehicle_number, stage, status")
+    .eq("id", trip_id)
+    .single();
+
+  if (tripErr) {
+    console.warn(`[worker] Could not fetch trip ${trip_id}:`, tripErr.message);
+  }
+
+  // Fetch evidence record (storage path and stage)
   const { data: evidenceRow, error: evErr } = await adminClient
     .from("trip_evidence")
-    .select("storage_path, mime_type")
+    .select("storage_path, mime_type, stage")
     .eq("id", evidence_id)
     .single();
 
@@ -202,6 +297,10 @@ async function processVerification(verification) {
     return;
   }
 
+  // Use the actual assigned vehicle number as primary comparison source
+  const targetPlate = tripRow?.vehicle_number || expected_plate || "";
+  const stage = tripRow?.stage || evidenceRow?.stage || null;
+
   // Download image
   const imageBuffer = await downloadEvidence(evidenceRow.storage_path);
   if (!imageBuffer) {
@@ -209,10 +308,10 @@ async function processVerification(verification) {
     return;
   }
 
-  // Call CV provider
+  // Call CV provider with actual image, assigned plate, and stage
   let cvResult;
   try {
-    cvResult = await callCVProvider(imageBuffer, expected_plate);
+    cvResult = await callCVProvider(imageBuffer, targetPlate, stage);
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
     await failVerification(id, trip_id, `CV provider threw an exception: ${msg}`);
@@ -221,7 +320,7 @@ async function processVerification(verification) {
 
   const now = new Date().toISOString();
 
-  // Map decision to verification_status and trip_status
+  // Map decision to verification_status
   const verStatus =
     cvResult.decision === "pass"
       ? "pass"
@@ -231,15 +330,6 @@ async function processVerification(verification) {
           ? "manual_review"
           : "error";
 
-  const tripStatus =
-    verStatus === "pass"
-      ? "pass"
-      : verStatus === "manual_review"
-        ? "manual_review"
-        : verStatus === "retake"
-          ? "retake"
-          : trip_id; // fallback — don't change status on error
-
   // Update verification record
   const { error: updateError } = await adminClient
     .from("verification_results")
@@ -247,9 +337,11 @@ async function processVerification(verification) {
       status: verStatus,
       image_quality: cvResult.imageQuality ?? null,
       vehicle_detected: cvResult.vehicleDetected ?? null,
+      expected_plate: targetPlate || null,
       detected_plate: cvResult.detectedPlate ?? null,
       plate_match: cvResult.plateMatch ?? null,
       vehicle_type: cvResult.vehicleType ?? null,
+      evidence_checks: cvResult.evidenceChecks ?? null,
       confidence: cvResult.confidence ?? null,
       decision: cvResult.decision,
       explanation: cvResult.explanation,
@@ -264,15 +356,15 @@ async function processVerification(verification) {
     return;
   }
 
-  // Update trip status
-  if (verStatus !== "error") {
+  // Update trip status on verified outcomes
+  if (["pass", "retake", "manual_review"].includes(verStatus)) {
     await adminClient
       .from("trips")
-      .update({ status: tripStatus })
+      .update({ status: verStatus })
       .eq("id", trip_id);
   }
 
-  // Write audit log
+  // Write comprehensive audit log
   await adminClient.from("audit_logs").insert({
     actor_id: null, // system actor
     action: "verification_completed",
@@ -282,6 +374,11 @@ async function processVerification(verification) {
     metadata: {
       status: verStatus,
       decision: cvResult.decision,
+      stage,
+      expected_plate: targetPlate,
+      detected_plate: cvResult.detectedPlate ?? null,
+      plate_match: cvResult.plateMatch ?? null,
+      confidence: cvResult.confidence ?? null,
       processor_version: cvResult.processorVersion,
     },
   });
