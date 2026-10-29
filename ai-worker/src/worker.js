@@ -19,6 +19,7 @@
  */
 
 import { createClient } from "@supabase/supabase-js";
+import { existsSync } from "fs";
 import { readFile } from "fs/promises";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
@@ -26,8 +27,20 @@ import { fileURLToPath } from "url";
 // ------------------------------------
 // Config from environment
 // ------------------------------------
+// Resolve ai-worker directory and load local .env if not already loaded via CLI
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const localEnvPath = join(__dirname, "..", ".env");
+if (typeof process.loadEnvFile === "function" && existsSync(localEnvPath) && !process.env.SUPABASE_URL) {
+  try {
+    process.loadEnvFile(localEnvPath);
+  } catch {
+    // Ignore if already loaded or on syntax warning
+  }
+}
+
 const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const SUPABASE_SERVICE_ROLE_KEY =
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY;
 const CV_PROVIDER = process.env.CV_PROVIDER ?? "mock";
 const CV_API_URL = process.env.CV_API_URL ?? "";
 const CV_API_KEY = process.env.CV_API_KEY ?? "";
@@ -37,7 +50,28 @@ const PROCESSING_TIMEOUT_MS = Number(process.env.PROCESSING_TIMEOUT_MS ?? "30000
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error(
-    "[worker] FATAL: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in .env",
+    "[worker] FATAL: SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be set in ai-worker/.env",
+  );
+  process.exit(1);
+}
+
+if (
+  SUPABASE_SERVICE_ROLE_KEY.includes("YOUR_SERVICE_ROLE_KEY") ||
+  SUPABASE_SERVICE_ROLE_KEY.includes("placeholder")
+) {
+  console.error(
+    "[worker] FATAL: SUPABASE_SERVICE_ROLE_KEY is still set to the placeholder string.\n" +
+      "The worker cannot authenticate until you set your real service_role secret key in ai-worker/.env.\n" +
+      "Get it from: Supabase Dashboard → Settings → API → Project API Keys → service_role (secret)",
+  );
+  process.exit(1);
+}
+
+if (SUPABASE_SERVICE_ROLE_KEY.startsWith("sb_publishable_")) {
+  console.error(
+    "[worker] FATAL: SUPABASE_SERVICE_ROLE_KEY contains a publishable/anon key (starts with 'sb_publishable_').\n" +
+      "The worker requires the server-side 'service_role' secret key to bypass RLS and process verification jobs.\n" +
+      "Get it from: Supabase Dashboard → Settings → API → Project API Keys → service_role (secret)",
   );
   process.exit(1);
 }
