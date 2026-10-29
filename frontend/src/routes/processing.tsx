@@ -47,6 +47,8 @@ function Processing() {
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [notFound, setNotFound] = useState(false);
 
+  const [waitingSeconds, setWaitingSeconds] = useState(0);
+
   // Load initial state
   useEffect(() => {
     if (!tripId) {
@@ -77,6 +79,54 @@ function Processing() {
     });
     return unsub;
   }, [tripId]);
+
+  // Fallback polling: polls every 3s in case Realtime WebSocket is delayed or disconnected
+  useEffect(() => {
+    if (!tripId) return;
+    const isDone =
+      verification?.status === "pass" ||
+      verification?.status === "retake" ||
+      verification?.status === "manual_review" ||
+      verification?.status === "error";
+
+    if (isDone) return;
+
+    const intervalId = setInterval(async () => {
+      const latest = await getLatestVerification(tripId);
+      if (latest) {
+        setVerification((prev) => {
+          if (
+            !prev ||
+            prev.status !== latest.status ||
+            prev.id !== latest.id ||
+            prev.updated_at !== latest.updated_at
+          ) {
+            return latest;
+          }
+          return prev;
+        });
+      }
+    }, 3000);
+
+    return () => clearInterval(intervalId);
+  }, [tripId, verification?.status, verification?.id, verification?.updated_at]);
+
+  // Track elapsed waiting time for stuck/delayed job visibility
+  useEffect(() => {
+    const isDone =
+      verification?.status === "pass" ||
+      verification?.status === "retake" ||
+      verification?.status === "manual_review" ||
+      verification?.status === "error";
+
+    if (isDone) return;
+
+    const timer = setInterval(() => {
+      setWaitingSeconds((s) => s + 1);
+    }, 1000);
+
+    return () => clearInterval(timer);
+  }, [verification?.status]);
 
   // Navigate when completed
   useEffect(() => {
@@ -241,10 +291,27 @@ function Processing() {
           </Link>
         </div>
       ) : (
-        <p className="flex items-center gap-2 text-sm text-muted-foreground">
-          <Clock className="h-4 w-4" />
-          Waiting for AI processor. This page will update automatically.
-        </p>
+        <div className="space-y-3">
+          <p className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Clock className="h-4 w-4" />
+            Waiting for AI processor. This page will update automatically.
+            {waitingSeconds > 0 && <span className="text-xs">({waitingSeconds}s elapsed)</span>}
+          </p>
+          {waitingSeconds >= 25 && (
+            <div className="flex items-center justify-between gap-2 rounded-xl border border-warning/30 bg-warning-soft p-3 text-xs text-warning">
+              <span>Verification is taking longer than expected. You can check trip details or manual review options if needed.</span>
+              <div className="flex gap-2 shrink-0">
+                <Link to="/trip" search={{ tripId: tripId }} className="font-semibold underline">
+                  Trip Details
+                </Link>
+                <span>•</span>
+                <Link to="/failed" search={{ tripId: tripId }} className="font-semibold underline">
+                  Manual Review
+                </Link>
+              </div>
+            </div>
+          )}
+        </div>
       )}
     </AppShell>
   );
