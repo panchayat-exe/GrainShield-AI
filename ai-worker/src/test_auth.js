@@ -55,20 +55,44 @@ if (key.includes("YOUR_") || key.includes("placeholder")) {
   });
 
   try {
-    console.log("Testing query on public.verification_results...");
-    const { data, error } = await client
+    console.log("Testing Supabase connectivity and service permissions:");
+
+    // 1. verification_results
+    const { data: verRows, error: verErr } = await client
       .from("verification_results")
       .select("id, status")
       .limit(1);
+    if (verErr) throw new Error(`verification_results table access failed: ${verErr.message}`);
+    console.log(`  ✓ verification_results table accessible (${verRows.length} sample row)`);
 
-    if (error) {
-      console.error(`FAIL: Supabase query returned error: ${error.message}`);
-      process.exitCode = 1;
-    } else {
-      console.log(`SUCCESS: Authenticated and queried verification_results table. Rows returned: ${data.length}`);
-    }
+    // 2. trips
+    const { data: tripRows, error: tripErr } = await client
+      .from("trips")
+      .select("id, vehicle_number")
+      .limit(1);
+    if (tripErr) throw new Error(`trips table access failed: ${tripErr.message}`);
+    console.log(`  ✓ trips table accessible (${tripRows.length} sample row)`);
+
+    // 3. trip_evidence
+    const { data: evRows, error: evErr } = await client
+      .from("trip_evidence")
+      .select("id, storage_path")
+      .limit(1);
+    if (evErr) throw new Error(`trip_evidence table access failed: ${evErr.message}`);
+    console.log(`  ✓ trip_evidence table accessible (${evRows.length} sample row)`);
+
+    // 4. storage bucket trip-evidence
+    const { data: bucketList, error: bucketErr } = await client.storage
+      .from("trip-evidence")
+      .list("", { limit: 1 });
+    if (bucketErr) throw new Error(`trip-evidence storage access failed: ${bucketErr.message}`);
+    console.log(`  ✓ trip-evidence private storage bucket accessible (${bucketList.length} items listed)`);
+
+    console.log("\n=======================================================");
+    console.log("SUCCESS: All Supabase worker permissions are verified!");
+    console.log("=======================================================");
   } catch (err) {
-    console.error(`FAIL: Network/client exception: ${err instanceof Error ? err.message : String(err)}`);
+    console.error(`FAIL: ${err instanceof Error ? err.message : String(err)}`);
     process.exitCode = 1;
   }
 }
