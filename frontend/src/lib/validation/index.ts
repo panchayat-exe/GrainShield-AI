@@ -50,7 +50,9 @@ export const ALLOWED_MIME_TYPES = ["image/jpeg", "image/png", "image/webp"] as c
 export const MAX_FILE_SIZE_BYTES = 10 * 1024 * 1024; // 10 MB
 export const VALID_TRIP_STAGES = ["first_mile", "mid_mile", "last_mile"] as const;
 
-export const tripStageSchema = z.enum(VALID_TRIP_STAGES);
+export const tripStageSchema = z.enum(VALID_TRIP_STAGES, {
+  errorMap: () => ({ message: "Please select a trip stage" }),
+});
 
 export const uploadSchema = z.object({
   trip_code: z
