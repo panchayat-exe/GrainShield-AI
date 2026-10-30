@@ -7,7 +7,9 @@
   "main": "src/worker.js",
   "scripts": {
     "start": "node --env-file=.env src/worker.js",
-    "dev": "node --env-file=.env --watch src/worker.js"
+    "dev": "node --env-file=.env --watch src/worker.js",
+    "test": "node src/test_integration.js",
+    "check-auth": "node src/test_auth.js"
   },
   "dependencies": {
     "@supabase/supabase-js": "^2.49.4"

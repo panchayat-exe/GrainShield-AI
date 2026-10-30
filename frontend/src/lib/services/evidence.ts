@@ -12,13 +12,35 @@ type EvidenceInsert = Database["public"]["Tables"]["trip_evidence"]["Insert"];
 
 const BUCKET = "trip-evidence";
 
-/** Compute a simple SHA-256 hex digest using the WebCrypto API. */
-async function sha256Hex(file: File): Promise<string> {
-  const buffer = await file.arrayBuffer();
-  const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
-  return Array.from(new Uint8Array(hashBuffer))
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("");
+function safeUUID(): string {
+  if (typeof crypto !== "undefined" && typeof crypto.randomUUID === "function") {
+    return crypto.randomUUID();
+  }
+  return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
+    const r = (Math.random() * 16) | 0;
+    const v = c === "x" ? r : (r & 0x3) | 0x8;
+    return v.toString(16);
+  });
+}
+
+/** Compute a simple SHA-256 hex digest using WebCrypto when available. */
+async function sha256Hex(file: File): Promise<string | null> {
+  try {
+    if (
+      typeof crypto !== "undefined" &&
+      crypto.subtle &&
+      typeof crypto.subtle.digest === "function"
+    ) {
+      const buffer = await file.arrayBuffer();
+      const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
+      return Array.from(new Uint8Array(hashBuffer))
+        .map((b) => b.toString(16).padStart(2, "0"))
+        .join("");
+    }
+  } catch {
+    // Non-fatal: WebCrypto unavailable or non-secure context
+  }
+  return null;
 }
 
 /**
@@ -43,7 +65,7 @@ export async function uploadEvidence(params: {
 
   // Build storage path
   const ext = file.name.split(".").pop() ?? "jpg";
-  const uniqueId = crypto.randomUUID();
+  const uniqueId = safeUUID();
   const storagePath = `${userId}/${tripId}/${uniqueId}.${ext}`;
 
   // Compute checksum for integrity
