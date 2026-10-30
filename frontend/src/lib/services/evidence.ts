@@ -26,7 +26,11 @@ function safeUUID(): string {
 /** Compute a simple SHA-256 hex digest using WebCrypto when available. */
 async function sha256Hex(file: File): Promise<string | null> {
   try {
-    if (typeof crypto !== "undefined" && crypto.subtle && typeof crypto.subtle.digest === "function") {
+    if (
+      typeof crypto !== "undefined" &&
+      crypto.subtle &&
+      typeof crypto.subtle.digest === "function"
+    ) {
       const buffer = await file.arrayBuffer();
       const hashBuffer = await crypto.subtle.digest("SHA-256", buffer);
       return Array.from(new Uint8Array(hashBuffer))

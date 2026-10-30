@@ -299,7 +299,10 @@ function Processing() {
           </p>
           {waitingSeconds >= 25 && (
             <div className="flex items-center justify-between gap-2 rounded-xl border border-warning/30 bg-warning-soft p-3 text-xs text-warning">
-              <span>Verification is taking longer than expected. You can check trip details or manual review options if needed.</span>
+              <span>
+                Verification is taking longer than expected. You can check trip details or manual
+                review options if needed.
+              </span>
               <div className="flex gap-2 shrink-0">
                 <Link to="/trip" search={{ tripId: tripId }} className="font-semibold underline">
                   Trip Details

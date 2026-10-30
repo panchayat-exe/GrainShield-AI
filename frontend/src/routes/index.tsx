@@ -41,10 +41,10 @@ function Upload() {
   const [error, setError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
-    trip_code?: string;
-    vehicle_number?: string;
-    stage?: string;
-    file?: string;
+    trip_code?: string | undefined;
+    vehicle_number?: string | undefined;
+    stage?: string | undefined;
+    file?: string | undefined;
   }>({});
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
@@ -279,9 +279,7 @@ function Upload() {
               {/* mid_mile: reserved in DB schema for future use; no PS000006 workflow defined */}
               <option value="last_mile">Last Mile</option>
             </select>
-            {fieldErrors.stage && (
-              <p className="mt-1 text-xs text-danger">{fieldErrors.stage}</p>
-            )}
+            {fieldErrors.stage && <p className="mt-1 text-xs text-danger">{fieldErrors.stage}</p>}
           </label>
         </div>
       </Card>
