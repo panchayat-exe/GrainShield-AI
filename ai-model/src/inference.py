@@ -29,6 +29,9 @@ DEFAULT_MODEL_CANDIDATES = [
     AI_MODEL_DIR.parent / "runs" / "detect" / "runs" / "plate_detection" / "baseline" / "weights" / "best.pt",
     AI_MODEL_DIR / "runs" / "plate_detection" / "baseline" / "weights" / "best.pt",
     REPO_ROOT / "runs" / "detect" / "train" / "weights" / "best.pt",
+    # Fallback: base pretrained YOLO model (lower plate accuracy but allows server to start)
+    AI_MODEL_DIR / "yolo26n.pt",
+    REPO_ROOT / "ai-model" / "yolo26n.pt",
 ]
 
 DEFAULT_TESSERACT_PATHS = [
