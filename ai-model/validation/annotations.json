@@ -1,0 +1,151 @@
+[  {
+    "image": "1.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "2.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "3.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "4.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "5.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "6.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "7.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "8.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "9.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "10.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "11.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "12.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "13.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "14.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  },
+  {
+    "image": "15.jpeg",
+    "vehicle_bbox": null,
+    "plate_bbox": null,
+    "expected_plate": "UNKNOWN",
+    "vehicle_category": null,
+    "expected_decision": "manual_review",
+    "annotated": false,
+    "annotator": null
+  }
+]

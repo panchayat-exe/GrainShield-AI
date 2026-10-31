@@ -15,6 +15,7 @@ import { Route as LiveTrackingRouteImport } from './routes/live-tracking'
 import { Route as LoginRouteImport } from './routes/login'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as TripsRouteImport } from './routes/trips'
+import { Route as UsersRouteImport } from './routes/users'
 import { Route as VerificationIndexRouteImport } from './routes/verification.index'
 import { Route as VerificationTripIdRouteImport } from './routes/verification.$tripId'
 
@@ -48,6 +49,11 @@ const TripsRoute = TripsRouteImport.update({
   path: '/trips',
   getParentRoute: () => rootRouteImport,
 } as any)
+const UsersRoute = UsersRouteImport.update({
+  id: '/users',
+  path: '/users',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VerificationIndexRoute = VerificationIndexRouteImport.update({
   id: '/verification/',
   path: '/verification/',
@@ -66,6 +72,7 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRoute
   '/reports': typeof ReportsRoute
   '/trips': typeof TripsRoute
+  '/users': typeof UsersRoute
   '/verification/$tripId': typeof VerificationTripIdRoute
   '/verification/': typeof VerificationIndexRoute
 }
@@ -76,6 +83,7 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRoute
   '/reports': typeof ReportsRoute
   '/trips': typeof TripsRoute
+  '/users': typeof UsersRoute
   '/verification/$tripId': typeof VerificationTripIdRoute
   '/verification': typeof VerificationIndexRoute
 }
@@ -87,6 +95,7 @@ export interface FileRoutesById {
   '/login': typeof LoginRoute
   '/reports': typeof ReportsRoute
   '/trips': typeof TripsRoute
+  '/users': typeof UsersRoute
   '/verification/$tripId': typeof VerificationTripIdRoute
   '/verification/': typeof VerificationIndexRoute
 }
@@ -99,6 +108,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reports'
     | '/trips'
+    | '/users'
     | '/verification/$tripId'
     | '/verification/'
   fileRoutesByTo: FileRoutesByTo
@@ -109,6 +119,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reports'
     | '/trips'
+    | '/users'
     | '/verification/$tripId'
     | '/verification'
   id:
@@ -119,6 +130,7 @@ export interface FileRouteTypes {
     | '/login'
     | '/reports'
     | '/trips'
+    | '/users'
     | '/verification/$tripId'
     | '/verification/'
   fileRoutesById: FileRoutesById
@@ -130,6 +142,7 @@ export interface RootRouteChildren {
   LoginRoute: typeof LoginRoute
   ReportsRoute: typeof ReportsRoute
   TripsRoute: typeof TripsRoute
+  UsersRoute: typeof UsersRoute
   VerificationTripIdRoute: typeof VerificationTripIdRoute
   VerificationIndexRoute: typeof VerificationIndexRoute
 }
@@ -178,6 +191,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof TripsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/users': {
+      id: '/users'
+      path: '/users'
+      fullPath: '/users'
+      preLoaderRoute: typeof UsersRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/verification/': {
       id: '/verification/'
       path: '/verification'
@@ -202,6 +222,7 @@ const rootRouteChildren: RootRouteChildren = {
   LoginRoute: LoginRoute,
   ReportsRoute: ReportsRoute,
   TripsRoute: TripsRoute,
+  UsersRoute: UsersRoute,
   VerificationTripIdRoute: VerificationTripIdRoute,
   VerificationIndexRoute: VerificationIndexRoute,
 }

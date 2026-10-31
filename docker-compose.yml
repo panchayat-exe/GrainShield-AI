@@ -1,0 +1,32 @@
+# GrainShield AI -- Local development docker-compose
+# For production deployment, use Cloud Run or equivalent container platform.
+version: "3.9"
+
+services:
+  ai-inference:
+    build:
+      context: ./ai-model
+    ports:
+      - "8000:8000"
+    environment:
+      - CV_API_KEY=${CV_API_KEY:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:8080}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - MAX_FILE_SIZE_BYTES=10485760
+    volumes:
+      - ./ai-model/weights:/app/weights:ro
+    restart: unless-stopped
+
+  ai-worker:
+    build:
+      context: ./ai-worker
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - CV_PROVIDER=http
+      - CV_API_URL=http://ai-inference:8000/verify
+      - CV_API_KEY=${CV_API_KEY:-}
+      - POLL_INTERVAL_MS=15000
+    depends_on:
+      - ai-inference
+    restart: unless-stopped

@@ -1,7 +1,9 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
+import { useState, useEffect } from "react";
 import { ClipboardCheck, FileBarChart, History, MapPin, Truck, ShieldCheck } from "lucide-react";
 import truck from "@/assets/truck.jpg";
 import { getDashboardStats } from "@/lib/admin-queries";
+import { supabase } from "@/lib/supabase";
 
 export const Route = createFileRoute("/")({
   loader: () => getDashboardStats(),
@@ -25,7 +27,25 @@ const tiles = [
 ] as const;
 
 function Home() {
-  const stats = Route.useLoaderData();
+  const initial = Route.useLoaderData();
+  const [stats, setStats] = useState(initial);
+
+  useEffect(() => {
+    const refreshStats = async () => {
+      const fresh = await getDashboardStats();
+      setStats(fresh);
+    };
+
+    const channel = supabase
+      .channel("dashboard-realtime")
+      .on("postgres_changes", { event: "*", schema: "public", table: "trips" }, refreshStats)
+      .on("postgres_changes", { event: "*", schema: "public", table: "verification_results" }, refreshStats)
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
+  }, []);
 
   return (
     <div className="space-y-8">

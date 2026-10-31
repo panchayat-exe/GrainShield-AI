@@ -10,6 +10,7 @@ const nav = [
   { to: "/live-tracking", label: "Live Tracking" },
   { to: "/reports", label: "Reports" },
   { to: "/audit-logs", label: "Audit Logs" },
+  { to: "/users", label: "Users" },
 ] as const;
 
 export function AdminShell({ children, adminUser }: { children: ReactNode; adminUser: AdminUser | null }) {

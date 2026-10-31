@@ -1,12 +1,14 @@
 """
-GrainShield AI — Inference HTTP Service
+GrainShield AI -- Inference HTTP Service
 Provides a REST API for license plate detection, OCR, and transport verification.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -17,6 +19,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
 from src.inference import GrainShieldInferenceEngine, resolve_model_path
 
@@ -27,9 +32,23 @@ MAX_FILE_SIZE_BYTES = int(os.environ.get("MAX_FILE_SIZE_BYTES", str(10 * 1024 * 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
 API_KEY = os.environ.get("CV_API_KEY", "").strip()
 
+_raw_origins = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:3001,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:8080"
+)
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
 if not API_KEY:
-    print("[security] WARNING: CV_API_KEY is not set. /verify endpoint is unprotected.")
-    print("[security]          Set CV_API_KEY in .env for production deployments.")
+    if ENVIRONMENT == "production":
+        print("[security] FATAL: CV_API_KEY must be set in production. Exiting.")
+        sys.exit(1)
+    else:
+        print("[security] WARNING: CV_API_KEY is not set. /verify endpoint is unprotected.")
+        print("[security]          Set CV_API_KEY in .env for production deployments.")
+
+# Thread pool for blocking inference calls
+_executor = ThreadPoolExecutor(max_workers=2)
 
 # Global engine instance pre-loaded at startup
 engine: Optional[GrainShieldInferenceEngine] = None
@@ -44,6 +63,7 @@ async def lifespan(app: FastAPI):
     print(f"[service] Model loaded successfully. Tesseract: {engine.tesseract_cmd}")
     yield
     print("[service] Shutting down inference service.")
+    _executor.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -53,9 +73,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "http://127.0.0.1:3000", "http://127.0.0.1:3001"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -87,9 +112,10 @@ def verify_api_key(authorization: Optional[str] = None):
 # ---------------------------------------------------------------------------
 @app.get("/health")
 @app.get("/")
-async def health_check():
+@limiter.limit("120/minute")
+async def health_check(request: Request):
     """Health check endpoint confirming service and model status."""
-    is_ready = engine is not None and engine.model is not None
+    is_ready = engine is not None and engine.vehicle_model is not None
     return {
         "status": "healthy" if is_ready else "initializing",
         "service": "grainshield-inference",
@@ -101,7 +127,9 @@ async def health_check():
 
 
 @app.post("/verify")
+@limiter.limit("10/minute")
 async def verify_image(
+    request: Request,
     image: UploadFile = File(...),
     expected_plate: Optional[str] = Form(None),
     stage: Optional[str] = Form(None),
@@ -186,14 +214,23 @@ async def verify_image(
             },
         )
 
-    # Run inference pipeline
+    # Run inference pipeline in thread pool with timeout
     try:
-        result = engine.analyze_image(
-            image_bytes=image_bytes,
-            expected_plate=expected_plate,
-            stage=stage,
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                _executor,
+                lambda: engine.analyze_image(
+                    image_bytes=image_bytes,
+                    expected_plate=expected_plate,
+                    stage=stage,
+                )
+            ),
+            timeout=90.0
         )
         return result
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Inference timeout after 90s")
     except Exception as e:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

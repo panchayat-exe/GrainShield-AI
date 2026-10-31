@@ -97,7 +97,7 @@ function LeafletMap({ locations, selectedId, onSelect }: {
 
   useEffect(() => {
     if (!mapRef.current) return;
-    if (mapInstanceRef.current) return; // already init
+    if (mapInstanceRef.current || mapRef.current?.dataset["leafletId"]) return; // already init
 
     // Dynamically import Leaflet to avoid SSR
     import("leaflet").then((L) => {
@@ -121,6 +121,7 @@ function LeafletMap({ locations, selectedId, onSelect }: {
       }).addTo(map);
 
       mapInstanceRef.current = { map, L };
+      if (mapRef.current) mapRef.current.dataset["leafletId"] = "initialized";
 
       // Add markers for initial locations
       addMarkers(L, map, locations, onSelect);
@@ -137,6 +138,9 @@ function LeafletMap({ locations, selectedId, onSelect }: {
         mapInstanceRef.current.map.remove();
         mapInstanceRef.current = null;
         markersRef.current = {};
+      }
+      if (mapRef.current) {
+        delete mapRef.current.dataset["leafletId"];
       }
     };
   }, []); // init once
