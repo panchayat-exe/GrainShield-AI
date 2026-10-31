@@ -195,37 +195,53 @@ def run_plate_ocr(crop: np.ndarray) -> Tuple[str, List[Dict[str, Any]], str]:
 
     candidates: List[Dict[str, Any]] = []
 
-    for method_name, processed in variants:
-        for psm in (7, 8, 13):
-            config = f"{OCR_CONFIG_BASE} --psm {psm}"
-            try:
-                raw_text = pytesseract.image_to_string(processed, config=config)
-            except Exception:
-                continue
+    # Early-exit strategy: try fast variants (adaptive + clahe, PSM 7) first.
+    # Only fall back to remaining 10 calls if no high-confidence result found.
+    # High-confidence: len(8-10)+5 + 4 state-code bonus => typical good plate >= 12
+    FAST_VARIANTS = [("adaptive", adaptive), ("clahe", clahe)]
+    SLOW_VARIANTS = [("otsu", otsu), ("grayscale", gray)]
+    HIGH_CONFIDENCE_SCORE = 12
 
-            cleaned = clean_plate_text(raw_text)
-            if not cleaned:
-                continue
+    def _ocr_variant(method_name, processed, psm):
+        config = f"{OCR_CONFIG_BASE} --psm {psm}"
+        try:
+            raw_text = pytesseract.image_to_string(processed, config=config)
+        except Exception:
+            return None
+        cleaned = clean_plate_text(raw_text)
+        if not cleaned:
+            return None
+        score = len(cleaned)
+        if 8 <= len(cleaned) <= 10:
+            score += 5
+        elif 5 <= len(cleaned) <= 7:
+            score += 2
+        elif len(cleaned) < 5:
+            score -= 3
+        if re.match(r"^[A-Z]{2}\d{1,2}", cleaned):
+            score += 4
+        return {"score": score, "text": cleaned, "raw": raw_text.strip(), "method": f"{method_name}-psm{psm}"}
 
-            # Score based on typical Indian plate length (8-10 alphanumeric chars)
-            score = len(cleaned)
-            if 8 <= len(cleaned) <= 10:
-                score += 5
-            elif 5 <= len(cleaned) <= 7:
-                score += 2
-            elif len(cleaned) < 5:
-                score -= 3
+    # Step 1: Fast pass — 2 Tesseract calls (adaptive + clahe, PSM 7)
+    for method_name, processed in FAST_VARIANTS:
+        result = _ocr_variant(method_name, processed, 7)
+        if result:
+            candidates.append(result)
 
-            # Bonus for starting with typical state code format (2 letters)
-            if re.match(r"^[A-Z]{2}\d{1,2}", cleaned):
-                score += 4
-
-            candidates.append({
-                "score": score,
-                "text": cleaned,
-                "raw": raw_text.strip(),
-                "method": f"{method_name}-psm{psm}",
-            })
+    # If best score is below threshold, run extended pass
+    best_so_far = max(candidates, key=lambda c: c["score"], default=None)
+    if not best_so_far or best_so_far["score"] < HIGH_CONFIDENCE_SCORE:
+        # Step 2: Extended pass — fast variants with PSM 8/13 + all slow variants
+        for method_name, processed in FAST_VARIANTS:
+            for psm in (8, 13):
+                result = _ocr_variant(method_name, processed, psm)
+                if result:
+                    candidates.append(result)
+        for method_name, processed in SLOW_VARIANTS:
+            for psm in (7, 8, 13):
+                result = _ocr_variant(method_name, processed, psm)
+                if result:
+                    candidates.append(result)
 
     if not candidates:
         return "", [], "no_readable_text"
