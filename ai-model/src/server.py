@@ -27,6 +27,10 @@ MAX_FILE_SIZE_BYTES = int(os.environ.get("MAX_FILE_SIZE_BYTES", str(10 * 1024 * 
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
 API_KEY = os.environ.get("CV_API_KEY", "").strip()
 
+if not API_KEY:
+    print("[security] WARNING: CV_API_KEY is not set. /verify endpoint is unprotected.")
+    print("[security]          Set CV_API_KEY in .env for production deployments.")
+
 # Global engine instance pre-loaded at startup
 engine: Optional[GrainShieldInferenceEngine] = None
 
