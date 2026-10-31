@@ -1,8 +1,9 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { LocateFixed, MapPin, Minus, Plus, Search, Truck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { LocateFixed, Minus, Plus, Search, Truck } from "lucide-react";
 import { Badge, Card, PageHeader } from "@/components/admin/AdminShell";
-import map from "@/assets/map.jpg";
 import { getActiveTripLocations, type ActiveTripLocation } from "@/lib/admin-queries";
+import "leaflet/dist/leaflet.css";
 
 export const Route = createFileRoute("/live-tracking")({
   loader: () => getActiveTripLocations(),
@@ -29,6 +30,12 @@ const stageLabel = {
   last_mile: "Last Mile",
 } as const;
 
+const stageColor: Record<string, string> = {
+  first_mile: "#3b82f6",  // blue
+  mid_mile:   "#f59e0b",  // amber
+  last_mile:  "#22c55e",  // green
+};
+
 function formatRelative(iso: string) {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 1000);
   if (diff < 60) return `${diff}s ago`;
@@ -36,9 +43,14 @@ function formatRelative(iso: string) {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
-function TripCard({ loc }: { loc: ActiveTripLocation }) {
+function TripCard({ loc, selected, onSelect }: { loc: ActiveTripLocation; selected: boolean; onSelect: () => void }) {
   return (
-    <div className="rounded-lg border border-border bg-card p-4 shadow-sm">
+    <div
+      onClick={onSelect}
+      className={`cursor-pointer rounded-lg border p-4 shadow-sm transition-colors ${
+        selected ? "border-primary bg-primary/5" : "border-border bg-card hover:bg-muted/30"
+      }`}
+    >
       <div className="mb-2 flex items-start justify-between gap-2">
         <div>
           <div className="font-semibold text-navy">{loc.tripCode}</div>
@@ -67,8 +79,126 @@ function TripCard({ loc }: { loc: ActiveTripLocation }) {
   );
 }
 
+/**
+ * LeafletMap — renders real OpenStreetMap tiles with vehicle markers.
+ * Uses lazy import to avoid SSR issues.
+ */
+function LeafletMap({ locations, selectedId, onSelect }: {
+  locations: ActiveTripLocation[];
+  selectedId: string | null;
+  onSelect: (id: string) => void;
+}) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<Record<string, any>>({});
+
+  // Gujarat center as default view
+  const GUJARAT_CENTER: [number, number] = [22.309, 72.136];
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (mapInstanceRef.current) return; // already init
+
+    // Dynamically import Leaflet to avoid SSR
+    import("leaflet").then((L) => {
+      // Fix default icon paths (Webpack/Vite strips them)
+      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+        shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+      });
+
+      const map = L.map(mapRef.current!, {
+        center: GUJARAT_CENTER,
+        zoom: locations.length > 0 ? 8 : 7,
+        zoomControl: false,
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      }).addTo(map);
+
+      mapInstanceRef.current = { map, L };
+
+      // Add markers for initial locations
+      addMarkers(L, map, locations, onSelect);
+
+      // Fit bounds if we have locations
+      if (locations.length > 0) {
+        const bounds = L.latLngBounds(locations.map((l) => [l.latitude, l.longitude] as [number, number]));
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+      }
+    });
+
+    return () => {
+      if (mapInstanceRef.current?.map) {
+        mapInstanceRef.current.map.remove();
+        mapInstanceRef.current = null;
+        markersRef.current = {};
+      }
+    };
+  }, []); // init once
+
+  function addMarkers(L: any, map: any, locs: ActiveTripLocation[], onSelect: (id: string) => void) {
+    // Remove old markers
+    Object.values(markersRef.current).forEach((m: any) => m.remove());
+    markersRef.current = {};
+
+    locs.forEach((loc) => {
+      const color = stageColor[loc.stage] ?? "#6b7280";
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+        <path d="M14 0C6.27 0 0 6.27 0 14c0 9.33 14 22 14 22S28 23.33 28 14C28 6.27 21.73 0 14 0z" fill="${color}" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="6" fill="white"/>
+      </svg>`;
+      const icon = L.divIcon({
+        html: svg,
+        iconSize: [28, 36],
+        iconAnchor: [14, 36],
+        popupAnchor: [0, -36],
+        className: "",
+      });
+      const marker = L.marker([loc.latitude, loc.longitude], { icon })
+        .addTo(map)
+        .bindPopup(
+          `<div style="min-width:160px">
+            <b>${loc.tripCode}</b><br/>
+            ${loc.vehicleNumber}<br/>
+            ${loc.driverName ?? ""}<br/>
+            <span style="font-size:11px;color:#888">${loc.origin} → ${loc.destination ?? "—"}</span>
+          </div>`
+        )
+        .on("click", () => onSelect(loc.tripId));
+      markersRef.current[loc.tripId] = marker;
+    });
+  }
+
+  // Pan to selected marker
+  useEffect(() => {
+    if (!mapInstanceRef.current || !selectedId) return;
+    const marker = markersRef.current[selectedId];
+    if (marker) {
+      mapInstanceRef.current.map.panTo(marker.getLatLng(), { animate: true });
+      marker.openPopup();
+    }
+  }, [selectedId]);
+
+  return <div ref={mapRef} className="h-[560px] w-full rounded-lg border border-border" />;
+}
+
 function Live() {
   const { locations, error } = Route.useLoaderData();
+  const [search, setSearch] = useState("");
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
+  const filtered = search
+    ? locations.filter(
+        (l) =>
+          l.tripCode.toLowerCase().includes(search.toLowerCase()) ||
+          l.vehicleNumber.toLowerCase().includes(search.toLowerCase())
+      )
+    : locations;
 
   return (
     <>
@@ -78,6 +208,8 @@ function Live() {
         right={
           <div className="flex gap-2">
             <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
               placeholder="Search Trip ID, Vehicle No…"
               className="h-11 w-56 rounded-md border border-input bg-card px-3 text-sm"
             />
@@ -97,36 +229,15 @@ function Live() {
       <div className="grid gap-6 lg:grid-cols-[1.4fr_1fr]">
         {/* Map panel */}
         <div>
-          <div className="relative overflow-hidden rounded-lg border border-border shadow-card">
-            <img src={map} alt="Route map" width={1024} height={1280} className="h-[560px] w-full object-cover" />
-
-            {/* Overlay dots for each real location */}
-            {locations.slice(0, 8).map((loc, i) => {
-              // Distribute markers across the map image as rough visual indicators
-              const left = 25 + (i % 4) * 14;
-              const top = 25 + Math.floor(i / 4) * 30;
-              return (
-                <div
-                  key={loc.tripId}
-                  className="absolute flex flex-col items-center"
-                  style={{ left: `${left}%`, top: `${top}%` }}
-                >
-                  <MapPin className="h-8 w-8 fill-info text-card drop-shadow-md" />
-                  <span className="rounded bg-navy/80 px-1 py-0.5 text-[10px] text-white">{loc.vehicleNumber}</span>
-                </div>
-              );
-            })}
-
-            {/* Zoom controls */}
-            <div className="absolute right-3 top-3 flex flex-col overflow-hidden rounded-md border border-border bg-card">
-              <button aria-label="Zoom in" className="p-2"><Plus className="h-4 w-4" /></button>
-              <button aria-label="Zoom out" className="border-t border-border p-2"><Minus className="h-4 w-4" /></button>
-              <button aria-label="Locate" className="border-t border-border p-2"><LocateFixed className="h-4 w-4" /></button>
-            </div>
-
+          <div className="relative">
+            <LeafletMap
+              locations={filtered}
+              selectedId={selectedId}
+              onSelect={setSelectedId}
+            />
             {/* Active count badge */}
-            <div className="absolute left-3 top-3 rounded-md bg-navy/90 px-3 py-1.5 text-sm font-medium text-white">
-              {locations.length} active vehicle{locations.length !== 1 ? "s" : ""}
+            <div className="absolute left-3 top-3 z-[1000] rounded-md bg-navy/90 px-3 py-1.5 text-sm font-medium text-white">
+              {filtered.length} active vehicle{filtered.length !== 1 ? "s" : ""}
             </div>
           </div>
 
@@ -139,8 +250,8 @@ function Live() {
 
         {/* Sidebar */}
         <div className="space-y-4">
-          <Card title={`Active Vehicles (${locations.length})`}>
-            {locations.length === 0 ? (
+          <Card title={`Active Vehicles (${filtered.length})`}>
+            {filtered.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-8 text-center text-muted-foreground">
                 <Truck className="h-10 w-10 opacity-30" />
                 <p className="text-sm">No active trips with GPS data right now.</p>
@@ -148,8 +259,13 @@ function Live() {
               </div>
             ) : (
               <div className="max-h-[480px] space-y-3 overflow-y-auto pr-1">
-                {locations.map((loc) => (
-                  <TripCard key={loc.tripId} loc={loc} />
+                {filtered.map((loc) => (
+                  <TripCard
+                    key={loc.tripId}
+                    loc={loc}
+                    selected={selectedId === loc.tripId}
+                    onSelect={() => setSelectedId(selectedId === loc.tripId ? null : loc.tripId)}
+                  />
                 ))}
               </div>
             )}

@@ -251,10 +251,21 @@ export async function getAuditLogs({
 // ---------------------------------------------------------------------------
 // Reports — Aggregated trip stats
 // ---------------------------------------------------------------------------
-export async function getReportStats() {
-  const { data, error } = await supabase
-    .from("trips")
-    .select("origin, status, stage, created_at");
+export interface ReportStatsFilter {
+  stage?: TripStage | "";
+  periodDays?: number; // 0 = all time, 7 = last 7 days, 30 = last 30 days, 90 = this quarter
+}
+
+export async function getReportStats({ stage = "", periodDays = 0 }: ReportStatsFilter = {}) {
+  let query = supabase.from("trips").select("origin, status, stage, created_at");
+
+  if (stage) query = query.eq("stage", stage);
+  if (periodDays > 0) {
+    const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000).toISOString();
+    query = query.gte("created_at", since);
+  }
+
+  const { data, error } = await query;
 
   if (error || !data) return { districts: [], error: error?.message ?? null };
 
@@ -275,10 +286,9 @@ export async function getReportStats() {
     else if (trip.status === "rejected") districtMap[district].rejected++;
   }
 
-  const districts = Object.entries(districtMap).map(([name, stats]) => ({
-    name,
-    ...stats,
-  }));
+  const districts = Object.entries(districtMap)
+    .map(([name, stats]) => ({ name, ...stats }))
+    .sort((a, b) => b.total - a.total); // highest traffic first
 
   return { districts, error: null };
 }
