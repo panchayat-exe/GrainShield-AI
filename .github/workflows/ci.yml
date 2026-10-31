@@ -6,21 +6,19 @@ on:
   pull_request:
     branches: [main, master]
 
-defaults:
-  run:
-    working-directory: frontend
-
 jobs:
-  lint-test-build:
-    name: Lint, Test & Build
+  # ── Citizen Frontend ─────────────────────────────────────────────────────
+  frontend:
+    name: Frontend — Lint, Test & Build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '24'
           cache: 'npm'
@@ -38,9 +36,66 @@ jobs:
       - name: Unit tests
         run: npm test
         env:
-          # Integration tests skip automatically when these are absent
           VITE_SUPABASE_URL: ''
           VITE_SUPABASE_PUBLISHABLE_KEY: ''
 
       - name: Build
         run: npm run build
+
+  # ── Admin Dashboard ───────────────────────────────────────────────────────
+  admin:
+    name: Admin — Type Check & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: apps/admin/package-lock.json
+
+      - name: Install dependencies
+        run: npm install --prefer-offline
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ''
+          VITE_SUPABASE_ANON_KEY: ''
+
+  # ── Mobile (TypeScript) ───────────────────────────────────────────────────
+  mobile:
+    name: Mobile — Type Check & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test -- --passWithNoTests
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ''
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ''

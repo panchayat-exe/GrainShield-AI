@@ -60,3 +60,8 @@ runs/
 ai-model/datasets/
 datasets/
 .cache/
+
+# -- Apps --------------------------------------------------
+apps/admin/.env
+apps/admin/.env.local
+apps/admin/.env.*.local
