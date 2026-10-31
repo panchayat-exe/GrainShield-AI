@@ -60,7 +60,7 @@ jobs:
           cache-dependency-path: apps/admin/package-lock.json
 
       - name: Install dependencies
-        run: npm install --prefer-offline
+        run: npm ci
 
       - name: Type check
         run: npx tsc --noEmit
