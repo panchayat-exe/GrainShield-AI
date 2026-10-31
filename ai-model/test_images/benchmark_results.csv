@@ -1,16 +1,16 @@
-image,expected_plate,decision,vehicle_detected,ocr_text,confidence,image_quality,ocr_method,ocr_candidates,latency_s,http_status,error
-1.jpeg,UNKNOWN,manual_review,True,E,0.6476,clear,otsu-psm7,3,38.06,200,
-10.jpeg,UNKNOWN,manual_review,True,,0.6593,clear,none,0,38.18,200,
-11.jpeg,UNKNOWN,manual_review,True,I,0.712,clear,clahe-psm8,11,39.29,200,
-12.jpeg,UNKNOWN,manual_review,True,3,0.7565,clear,adaptive-psm8,14,39.61,200,
-13.jpeg,UNKNOWN,manual_review,True,7,0.6747,clear,adaptive-psm8,15,34.08,200,
-14.jpeg,UNKNOWN,manual_review,True,S,0.6707,clear,adaptive-psm8,2,15.94,200,
-15.jpeg,UNKNOWN,manual_review,True,B,0.4664,clear,adaptive-psm8,2,45.17,200,
-2.jpeg,UNKNOWN,manual_review,True,BY,0.6953,clear,clahe-psm7,13,23.35,200,
-3.jpeg,UNKNOWN,manual_review,True,ES,0.6833,clear,adaptive-psm8,17,38.54,200,
-4.jpeg,UNKNOWN,exception,False,,0,,,0,15.81,0,"('Connection aborted.', ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))"
-5.jpeg,UNKNOWN,exception,False,,0,,,0,2.03,0,"HTTPConnectionPool(host='127.0.0.1', port=8000): Max retries exceeded with url: /verify (Caused by NewConnectionError(""HTTPConnection(host='127.0.0.1', port=8000): Failed to establish a new connection"
-6.jpeg,UNKNOWN,exception,False,,0,,,0,2.02,0,"HTTPConnectionPool(host='127.0.0.1', port=8000): Max retries exceeded with url: /verify (Caused by NewConnectionError(""HTTPConnection(host='127.0.0.1', port=8000): Failed to establish a new connection"
-7.jpeg,UNKNOWN,manual_review,True,BY,0.6948,clear,clahe-psm7,17,26.69,200,
-8.jpeg,UNKNOWN,exception,False,,0,,,0,16.27,0,"('Connection aborted.', ConnectionResetError(10054, 'An existing connection was forcibly closed by the remote host', None, 10054, None))"
-9.jpeg,UNKNOWN,exception,False,,0,,,0,2.03,0,"HTTPConnectionPool(host='127.0.0.1', port=8000): Max retries exceeded with url: /verify (Caused by NewConnectionError(""HTTPConnection(host='127.0.0.1', port=8000): Failed to establish a new connection"
+image,expected_plate,decision,vehicle_detected,ocr_text,confidence,image_quality,is_blurry,is_dark,blur_score,ocr_method,ocr_candidates,latency_s,http_status,error
+1.jpeg,UNKNOWN,manual_review,True,E,0.6476,clear,False,False,824.3,otsu-psm7,3,36.29,200,
+10.jpeg,UNKNOWN,manual_review,True,,0.6593,clear,False,False,790.2,none,0,34.02,200,
+11.jpeg,UNKNOWN,manual_review,True,I,0.712,clear,False,False,768.3,clahe-psm8,11,34.43,200,
+12.jpeg,UNKNOWN,manual_review,True,3,0.7565,clear,False,False,914.1,adaptive-psm8,14,70.52,200,
+13.jpeg,UNKNOWN,manual_review,True,7,0.6747,clear,False,False,656.2,adaptive-psm8,15,62.34,200,
+14.jpeg,UNKNOWN,manual_review,True,S,0.6707,clear,False,False,854.2,adaptive-psm8,2,32.36,200,
+15.jpeg,UNKNOWN,manual_review,True,B,0.4664,clear,False,False,646.0,adaptive-psm8,2,72.99,200,
+2.jpeg,UNKNOWN,manual_review,True,BY,0.6953,clear,False,False,1136.9,clahe-psm7,13,21.25,200,
+3.jpeg,UNKNOWN,manual_review,True,ES,0.6833,clear,False,False,890.9,adaptive-psm8,17,31.64,200,
+4.jpeg,UNKNOWN,manual_review,True,SS,0.666,clear,False,False,832.5,adaptive-psm8,12,17.11,200,
+5.jpeg,UNKNOWN,manual_review,True,2,0.6762,clear,False,False,944.0,adaptive-psm8,18,36.41,200,
+6.jpeg,UNKNOWN,manual_review,True,E,0.6261,clear,False,False,1048.0,clahe-psm8,6,33.55,200,
+7.jpeg,UNKNOWN,manual_review,True,BY,0.6948,clear,False,False,947.1,clahe-psm7,17,20.15,200,
+8.jpeg,UNKNOWN,manual_review,True,4,0.58,clear,False,False,722.2,grayscale-psm7,11,31.43,200,
+9.jpeg,UNKNOWN,manual_review,True,4,0.4177,clear,False,False,802.4,clahe-psm8,7,31.77,200,
