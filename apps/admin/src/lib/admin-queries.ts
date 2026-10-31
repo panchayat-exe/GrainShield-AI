@@ -200,7 +200,7 @@ export async function getTripDetail(tripId: string) {
 // ---------------------------------------------------------------------------
 // Evidence — Signed URLs for private storage
 // ---------------------------------------------------------------------------
-export async function getEvidenceSignedUrl(storagePath: string, expiresInSeconds = 3600) {
+export async function getEvidenceSignedUrl(storagePath: string, expiresInSeconds = 300) {
   const { data, error } = await supabase.storage
     .from("trip-evidence")
     .createSignedUrl(storagePath, expiresInSeconds);

@@ -1,6 +1,6 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, Landmark, LogOut, User, Wheat } from "lucide-react";
-import type { ReactNode } from "react";
+import type { ChangeEvent, ReactNode } from "react";
 import { adminSignOut, type AdminUser } from "@/lib/admin-auth";
 
 const nav = [
@@ -146,24 +146,58 @@ export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
   return <span className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium ${tones[tone]}`}>{children}</span>;
 }
 
-export function Select({ options }: { options: string[] }) {
+export function Select({
+  options,
+  value,
+  onChange,
+}: {
+  options: string[];
+  value?: string;
+  onChange?: (v: string) => void;
+}) {
   return (
-    <select className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring">
-      {options.map((o) => <option key={o}>{o}</option>)}
+    <select
+      className="h-11 w-full rounded-md border border-input bg-card px-3 text-sm outline-none focus:ring-2 focus:ring-ring"
+      value={value}
+      onChange={(e: ChangeEvent<HTMLSelectElement>) => onChange?.(e.target.value)}
+    >
+      {options.map((o) => <option key={o} value={o}>{o}</option>)}
     </select>
   );
 }
 
-export function SearchBox({ placeholder }: { placeholder: string }) {
+export function SearchBox({
+  placeholder,
+  value,
+  onChange,
+}: {
+  placeholder: string;
+  value?: string;
+  onChange?: (v: string) => void;
+}) {
   return (
     <input
       placeholder={placeholder}
+      value={value ?? ""}
+      onChange={(e: ChangeEvent<HTMLInputElement>) => onChange?.(e.target.value)}
       className="h-11 w-full rounded-md border border-input bg-card px-4 text-sm outline-none focus:ring-2 focus:ring-ring"
     />
   );
 }
 
 export function DataTable({ head, rows }: { head: string[]; rows: ReactNode[][] }) {
+  if (rows.length === 0) {
+    return (
+      <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
+        <table className="w-full text-sm">
+          <thead className="bg-info-soft text-left text-navy">
+            <tr>{head.map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
+          </thead>
+        </table>
+        <div className="py-12 text-center text-muted-foreground text-sm">No records found.</div>
+      </div>
+    );
+  }
   return (
     <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
       <table className="w-full text-sm">
@@ -182,16 +216,60 @@ export function DataTable({ head, rows }: { head: string[]; rows: ReactNode[][] 
   );
 }
 
-export function Pagination({ last }: { last: number }) {
+export function Pagination({
+  page,
+  last,
+  onPageChange,
+}: {
+  page: number;
+  last: number;
+  onPageChange: (p: number) => void;
+}) {
+  if (last <= 1) return null;
+
+  // Build compact page list: always show first, last, current ±1
+  const pages = new Set<number>([1, last, page, page - 1, page + 1].filter((p) => p >= 1 && p <= last));
+  const sorted = [...pages].sort((a, b) => a - b);
+
   return (
     <div className="mt-5 flex items-center justify-end gap-2 text-sm">
-      <button className="px-2 text-muted-foreground">‹</button>
-      {[1, 2, 3].map((n) => (
-        <button key={n} className={`h-9 w-9 rounded-md border ${n === 1 ? "border-primary bg-primary text-primary-foreground" : "border-border bg-card"}`}>{n}</button>
-      ))}
-      <span>…</span>
-      <button className="h-9 w-9 rounded-md border border-border bg-card">{last}</button>
-      <button className="px-2">›</button>
+      <button
+        className="px-2 text-muted-foreground disabled:opacity-40"
+        onClick={() => onPageChange(page - 1)}
+        disabled={page <= 1}
+        aria-label="Previous page"
+      >
+        ‹
+      </button>
+      {sorted.map((n, i) => {
+        const prev = sorted[i - 1];
+        return (
+          <>
+            {prev && n - prev > 1 && (
+              <span key={`gap-${n}`} className="px-1 text-muted-foreground">…</span>
+            )}
+            <button
+              key={n}
+              onClick={() => onPageChange(n)}
+              className={`h-9 w-9 rounded-md border ${
+                n === page
+                  ? "border-primary bg-primary text-primary-foreground font-semibold"
+                  : "border-border bg-card hover:bg-muted"
+              }`}
+            >
+              {n}
+            </button>
+          </>
+        );
+      })}
+      <button
+        className="px-2 disabled:opacity-40"
+        onClick={() => onPageChange(page + 1)}
+        disabled={page >= last}
+        aria-label="Next page"
+      >
+        ›
+      </button>
     </div>
   );
 }
