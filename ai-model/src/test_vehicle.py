@@ -1,4 +1,4 @@
-﻿from pathlib import Path
+from pathlib import Path
 from ultralytics import YOLO
 
 print("Loading YOLO model...", flush=True)

@@ -131,7 +131,7 @@ jobs:
 
       - name: Syntax check
         run: |
-          python -c "import ast, pathlib; [ast.parse(f.read_text()) for f in pathlib.Path('src').rglob('*.py')]"
+          python -c "import ast, pathlib; [ast.parse(f.read_text(encoding='utf-8-sig')) for f in pathlib.Path('src').rglob('*.py')]"
           echo "Syntax OK"
 
       - name: Unit tests
@@ -139,3 +139,4 @@ jobs:
         env:
           TESSERACT_CMD: /usr/bin/tesseract
           MODEL_PATH: yolo26n.pt
+          PLATE_MODEL_PATH: yolo26n.pt

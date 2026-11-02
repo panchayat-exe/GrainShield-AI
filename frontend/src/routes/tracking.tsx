@@ -16,6 +16,7 @@ import { getSignedUrl } from "@/lib/services/evidence";
 import { formatTimestamp } from "@/lib/services/audit";
 import type { Trip, TripLocation, TripEvidence } from "@/lib/supabase/types";
 import { supabase } from "@/lib/supabase/client";
+import type * as L from "leaflet";
 import "leaflet/dist/leaflet.css";
 
 export const Route = createFileRoute("/tracking")({
@@ -31,26 +32,26 @@ export const Route = createFileRoute("/tracking")({
   component: Tracking,
 });
 
-/** Real Leaflet map showing trip origin → vehicle location → destination */
-function TripMap({
-  trip,
-  location,
-}: {
-  trip: Trip | null;
-  location: TripLocation | null;
-}) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
+// Gujarat center
+const GUJARAT_CENTER: [number, number] = [22.309, 72.136];
 
-  // Gujarat center
-  const GUJARAT_CENTER: [number, number] = [22.309, 72.136];
+interface LeafletMapWrapper {
+  map: L.Map;
+  L: typeof L;
+  vehicleMarker?: L.Marker | null;
+}
+
+/** Real Leaflet map showing trip origin → vehicle location → destination */
+function TripMap({ trip, location }: { trip: Trip | null; location: TripLocation | null }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<LeafletMapWrapper | null>(null);
 
   useEffect(() => {
     if (!mapRef.current) return;
     if (mapInstanceRef.current) return;
 
     import("leaflet").then((L) => {
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
+      delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
         iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",

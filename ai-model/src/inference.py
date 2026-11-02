@@ -1,4 +1,4 @@
-﻿"""
+"""
 GrainShield AI — Computer Vision Inference Engine
 Two-stage pipeline: vehicle detection -> plate region extraction -> OCR -> decision.
 """
@@ -110,6 +110,13 @@ def resolve_plate_model_path() -> Path:
         / "weights"
         / "best.pt"
     )
+    candidates.extend([
+        AI_MODEL_DIR / "weights" / "best.pt",
+        AI_MODEL_DIR / "best.pt",
+        AI_MODEL_DIR / "yolo26n.pt",
+        AI_MODEL_DIR / "yolov8n.pt",
+        REPO_ROOT / "ai-model" / "yolo26n.pt",
+    ])
 
     for candidate in candidates:
         if candidate.is_file():
