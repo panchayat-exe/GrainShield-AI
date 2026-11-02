@@ -1,37 +1,43 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useState } from "react";
-import { Users, Shield, Search } from "lucide-react";
+import { Users, Shield, Search, AlertCircle, ShieldAlert, Check } from "lucide-react";
 import { PageHeader, Badge, Pagination } from "@/components/admin/AdminShell";
-import { getProfiles } from "@/lib/admin-queries";
-import { supabase } from "@/lib/supabase";
+import { getProfiles, updateUserRole } from "@/lib/admin-queries";
+import { getAdminSession, canAssignRole, type AdminUser } from "@/lib/admin-auth";
+import type { UserRole } from "@/lib/supabase";
 
 export const Route = createFileRoute("/users")({
-  loader: () => getProfiles({ page: 1, pageSize: 50 }),
+  loader: async () => {
+    const [profilesResult, session] = await Promise.all([
+      getProfiles({ page: 1, pageSize: 50 }),
+      getAdminSession(),
+    ]);
+    return { ...profilesResult, adminUser: session };
+  },
   head: () => ({
     meta: [
-      { title: "Users -- GrainShield AI Admin" },
-      { name: "description", content: "Manage admin users and roles." },
+      { title: "User Management — GrainShield AI Admin" },
+      { name: "description", content: "Manage system users, officers and role assignments." },
     ],
   }),
   component: UsersPage,
 });
 
-const ROLES = ["user", "officer", "admin", "super_admin"] as const;
-type Role = typeof ROLES[number];
+const ROLES: UserRole[] = ["user", "officer", "admin", "super_admin"];
 
 type Tone = "success" | "warning" | "danger" | "info" | "muted";
 
-const roleTone: Record<Role, Tone> = {
+const roleTone: Record<UserRole, Tone> = {
   user: "info",
   officer: "warning",
   admin: "success",
   super_admin: "danger",
 };
 
-const roleLabel: Record<Role, string> = {
-  user: "User",
-  officer: "Officer",
-  admin: "Admin",
+const roleLabel: Record<UserRole, string> = {
+  user: "Driver / Citizen",
+  officer: "Field Officer",
+  admin: "Administrator",
   super_admin: "Super Admin",
 };
 
@@ -42,7 +48,9 @@ function UsersPage() {
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(1);
   const [updating, setUpdating] = useState<string | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [message, setMessage] = useState<{ type: "success" | "error"; text: string } | null>(null);
+  const adminUser = initial.adminUser;
+
   const pageSize = 50;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
@@ -58,39 +66,68 @@ function UsersPage() {
     await loadProfiles(1, val);
   }
 
-  async function handleRoleChange(userId: string, newRole: Role) {
+  async function handleRoleChange(userId: string, currentRole: UserRole, newRole: UserRole) {
+    if (currentRole === newRole) return;
+
     setUpdating(userId);
-    setError(null);
-    const { error: updateErr } = await supabase
-      .from("profiles")
-      .update({ role: newRole })
-      .eq("id", userId);
-    if (updateErr) {
-      setError(`Failed to update role: ${updateErr.message}`);
+    setMessage(null);
+
+    const check = canAssignRole(adminUser, currentRole, newRole);
+    if (!check.allowed) {
+      setMessage({ type: "error", text: check.reason ?? "Permission denied." });
+      setUpdating(null);
+      return;
+    }
+
+    const { success, error } = await updateUserRole(userId, currentRole, newRole, adminUser);
+
+    if (error || !success) {
+      setMessage({ type: "error", text: `Failed to update role: ${error}` });
     } else {
-      setProfiles((prev) =>
-        prev.map((p) => (p.id === userId ? { ...p, role: newRole } : p))
-      );
+      setProfiles((prev) => prev.map((p) => (p.id === userId ? { ...p, role: newRole } : p)));
+      setMessage({
+        type: "success",
+        text: `Role successfully updated to ${roleLabel[newRole]}. Audit trail logged.`,
+      });
     }
     setUpdating(null);
   }
+
+  const isOfficerCaller = adminUser?.role === "officer";
 
   return (
     <div className="space-y-6">
       <PageHeader
         crumbs={[{ label: "Users" }]}
-        title="User Management"
-        subtitle={`${total} registered user${total !== 1 ? "s" : ""}`}
-        right={<Users className="h-6 w-6 text-muted-foreground" />}
+        title="User & Access Management"
+        subtitle={`${total} registered account${total !== 1 ? "s" : ""} across Gujarat GrainShield`}
+        right={
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-muted-foreground">Signed in as:</span>
+            <Badge tone={roleTone[adminUser?.role ?? "user"]}>
+              {roleLabel[adminUser?.role ?? "user"]}
+            </Badge>
+          </div>
+        }
       />
 
-      {/* Search */}
+      {isOfficerCaller && (
+        <div className="flex items-center gap-2 rounded-lg border border-warning/30 bg-warning-soft p-3 text-xs text-warning">
+          <ShieldAlert className="h-4 w-4 shrink-0" />
+          <span>
+            <b>Read-Only Mode:</b> Officer accounts can inspect user directories but do not have
+            administrative authority to reassign roles.
+          </span>
+        </div>
+      )}
+
+      {/* Search Bar */}
       <div className="flex items-center gap-3">
         <div className="relative flex-1 max-w-xs">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <input
             type="search"
-            placeholder="Search by name or email..."
+            placeholder="Search by name or email…"
             value={search}
             onChange={(e) => handleSearch(e.target.value)}
             className="w-full rounded-md border border-input bg-background pl-9 pr-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-ring"
@@ -101,79 +138,107 @@ function UsersPage() {
         </span>
       </div>
 
-      {error && (
-        <div className="rounded-md border border-destructive/30 bg-destructive/10 px-4 py-3 text-sm text-destructive">
-          {error}
+      {message && (
+        <div
+          className={`flex items-center gap-2 rounded-md p-3 text-sm ${
+            message.type === "success"
+              ? "border border-success/30 bg-success-soft text-success"
+              : "border border-destructive/30 bg-danger-soft text-destructive"
+          }`}
+        >
+          {message.type === "success" ? (
+            <Check className="h-4 w-4" />
+          ) : (
+            <AlertCircle className="h-4 w-4" />
+          )}
+          {message.text}
         </div>
       )}
 
-      {/* Table */}
+      {/* Users Table */}
       <div className="overflow-hidden rounded-lg border border-border bg-card shadow-card">
         <table className="w-full text-sm">
           <thead className="border-b border-border bg-muted/40">
             <tr>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Name / Email</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">District</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Current Role</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Change Role</th>
-              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Joined</th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Name & Email
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                District / Region
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Current Role
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                Assigned Role
+              </th>
+              <th className="px-4 py-3 text-left font-medium text-muted-foreground">Registered</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-border">
-            {profiles.length === 0 ? (
-              <tr>
-                <td colSpan={5} className="px-4 py-8 text-center text-muted-foreground">
-                  No users found
-                </td>
-              </tr>
-            ) : (
-              profiles.map((profile) => (
-                <tr key={profile.id} className="hover:bg-muted/20 transition-colors">
+            {profiles.map((p) => {
+              const canEditThisUser =
+                !isOfficerCaller &&
+                (adminUser?.role === "super_admin" ||
+                  (adminUser?.role === "admin" && p.role !== "admin" && p.role !== "super_admin"));
+
+              return (
+                <tr key={p.id} className="hover:bg-muted/20 transition-colors">
                   <td className="px-4 py-3">
-                    <div className="font-medium text-foreground">{profile.full_name || "--"}</div>
-                    <div className="text-xs text-muted-foreground">{profile.email}</div>
+                    <div className="font-medium text-foreground">{p.full_name || "—"}</div>
+                    <div className="text-xs text-muted-foreground">{p.email}</div>
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground">{profile.district || "--"}</td>
+                  <td className="px-4 py-3 text-muted-foreground">
+                    {p.district || "General Gujarat"}
+                  </td>
                   <td className="px-4 py-3">
-                    <Badge tone={roleTone[profile.role as Role] ?? "info"}>
-                      <Shield className="mr-1 h-3 w-3" />
-                      {roleLabel[profile.role as Role] ?? profile.role}
+                    <Badge tone={roleTone[p.role as UserRole]}>
+                      {roleLabel[p.role as UserRole] ?? p.role}
                     </Badge>
                   </td>
                   <td className="px-4 py-3">
-                    <select
-                      value={profile.role}
-                      disabled={updating === profile.id}
-                      onChange={(e) => handleRoleChange(profile.id, e.target.value as Role)}
-                      className="rounded border border-input bg-background px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-ring disabled:opacity-50"
-                    >
-                      {ROLES.map((r) => (
-                        <option key={r} value={r}>{roleLabel[r]}</option>
-                      ))}
-                    </select>
-                    {updating === profile.id && (
-                      <span className="ml-2 text-xs text-muted-foreground">Saving...</span>
+                    {canEditThisUser ? (
+                      <select
+                        disabled={updating === p.id}
+                        value={p.role}
+                        onChange={(e) =>
+                          handleRoleChange(p.id, p.role as UserRole, e.target.value as UserRole)
+                        }
+                        className="rounded-md border border-input bg-background px-2.5 py-1 text-xs font-medium focus:outline-none focus:ring-1 focus:ring-ring"
+                      >
+                        <option value="user">Driver / Citizen</option>
+                        <option value="officer">Field Officer</option>
+                        {adminUser?.role === "super_admin" && (
+                          <>
+                            <option value="admin">Administrator</option>
+                            <option value="super_admin">Super Admin</option>
+                          </>
+                        )}
+                      </select>
+                    ) : (
+                      <span className="text-xs text-muted-foreground italic">
+                        Protected / Read-only
+                      </span>
                     )}
                   </td>
-                  <td className="px-4 py-3 text-muted-foreground text-xs">
-                    {profile.created_at
-                      ? new Date(profile.created_at).toLocaleDateString("en-IN")
-                      : "--"}
+                  <td className="px-4 py-3 text-xs text-muted-foreground">
+                    {new Date(p.created_at).toLocaleDateString("en-IN")}
                   </td>
                 </tr>
-              ))
-            )}
+              );
+            })}
           </tbody>
         </table>
       </div>
 
-      {totalPages > 1 && (
-        <Pagination
-          page={page}
-          last={totalPages}
-          onPageChange={(p) => { setPage(p); loadProfiles(p); }}
-        />
-      )}
+      <Pagination
+        page={page}
+        last={totalPages}
+        onPageChange={(p) => {
+          setPage(p);
+          loadProfiles(p, search);
+        }}
+      />
     </div>
   );
 }

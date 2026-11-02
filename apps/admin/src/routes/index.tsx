@@ -1,6 +1,17 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState, useEffect } from "react";
-import { ClipboardCheck, FileBarChart, History, MapPin, Truck, ShieldCheck } from "lucide-react";
+import {
+  ClipboardCheck,
+  FileBarChart,
+  History,
+  MapPin,
+  Truck,
+  ShieldCheck,
+  CheckCircle2,
+  AlertTriangle,
+  XCircle,
+  ArrowUpRight,
+} from "lucide-react";
 import truck from "@/assets/truck.jpg";
 import { getDashboardStats } from "@/lib/admin-queries";
 import { supabase } from "@/lib/supabase";
@@ -10,9 +21,15 @@ export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
       { title: "Home — GrainShield AI Admin" },
-      { name: "description", content: "Admin portal for AI-verified food grain transport across Gujarat." },
+      {
+        name: "description",
+        content: "Admin portal for AI-verified food grain transport across Gujarat.",
+      },
       { property: "og:title", content: "Home — GrainShield AI Admin" },
-      { property: "og:description", content: "Admin portal for AI-verified food grain transport across Gujarat." },
+      {
+        property: "og:description",
+        content: "Admin portal for AI-verified food grain transport across Gujarat.",
+      },
     ],
   }),
   component: Home,
@@ -39,7 +56,16 @@ function Home() {
     const channel = supabase
       .channel("dashboard-realtime")
       .on("postgres_changes", { event: "*", schema: "public", table: "trips" }, refreshStats)
-      .on("postgres_changes", { event: "*", schema: "public", table: "verification_results" }, refreshStats)
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "verification_results" },
+        refreshStats,
+      )
+      .on(
+        "postgres_changes",
+        { event: "*", schema: "public", table: "manual_review_requests" },
+        refreshStats,
+      )
       .subscribe();
 
     return () => {
@@ -49,17 +75,53 @@ function Home() {
 
   return (
     <div className="space-y-8">
-      {/* Stats bar */}
+      {/* Primary KPI Stats */}
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Total Trips", value: stats?.totalTrips ?? "—" },
-          { label: "Pending Review", value: stats?.pendingReview ?? "—" },
-          { label: "Passed", value: stats?.passed ?? "—" },
-          { label: "Processing", value: stats?.processing ?? "—" },
+          { label: "Total Trips", value: stats?.totalTrips ?? 0, icon: Truck, color: "text-navy" },
+          {
+            label: "Verified Pass",
+            value: stats?.passed ?? 0,
+            icon: CheckCircle2,
+            color: "text-success",
+          },
+          {
+            label: "Pending Review",
+            value: stats?.pendingReview ?? 0,
+            icon: AlertTriangle,
+            color: "text-warning",
+          },
+          {
+            label: "Rejected",
+            value: stats?.rejected ?? 0,
+            icon: XCircle,
+            color: "text-destructive",
+          },
         ].map((s) => (
           <div key={s.label} className="rounded-lg border border-border bg-card p-4 shadow-card">
-            <div className="text-sm text-muted-foreground">{s.label}</div>
-            <div className="mt-1 text-3xl font-bold text-navy">{s.value}</div>
+            <div className="flex items-center justify-between text-sm text-muted-foreground">
+              <span>{s.label}</span>
+              <s.icon className={`h-4 w-4 ${s.color}`} />
+            </div>
+            <div className={`mt-2 text-3xl font-bold ${s.color}`}>{s.value}</div>
+          </div>
+        ))}
+      </section>
+
+      {/* Logistics & Stage Breakdown */}
+      <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        {[
+          { label: "First Mile (Mandi → Godown)", value: stats?.firstMile ?? 0 },
+          { label: "Mid Mile (Inter-District)", value: stats?.midMile ?? 0 },
+          { label: "Last Mile (Godown → FPS)", value: stats?.lastMile ?? 0 },
+          { label: "Today's Movements", value: stats?.todayCount ?? 0 },
+        ].map((s) => (
+          <div
+            key={s.label}
+            className="rounded-lg border border-border/80 bg-muted/20 p-3 shadow-sm"
+          >
+            <div className="text-xs text-muted-foreground">{s.label}</div>
+            <div className="mt-1 text-xl font-semibold text-navy">{s.value}</div>
           </div>
         ))}
       </section>
@@ -71,18 +133,40 @@ function Home() {
           </span>
           <h1 className="font-display text-4xl font-bold text-navy">Welcome back, Admin Officer</h1>
           <p className="text-muted-foreground">
-            Monitor every grain truck from FCI godown to fair price shop. AI checks each photo — you handle the exceptions.
+            Monitor every grain truck from FCI godown to fair price shop. AI checks each photo — you
+            handle the exceptions.
           </p>
           <div className="flex gap-3">
-            <Link to="/verification" className="inline-flex items-center rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">Open review queue</Link>
-            <Link to="/live-tracking" className="inline-flex items-center rounded-md border border-input px-5 py-2.5 text-sm font-medium text-info hover:bg-muted">Live tracking</Link>
+            <Link
+              to="/verification"
+              className="inline-flex items-center gap-1.5 rounded-md bg-primary px-5 py-2.5 text-sm font-medium text-primary-foreground hover:bg-primary/90"
+            >
+              Open review queue <ArrowUpRight className="h-4 w-4" />
+            </Link>
+            <Link
+              to="/live-tracking"
+              className="inline-flex items-center rounded-md border border-input px-5 py-2.5 text-sm font-medium text-info hover:bg-muted"
+            >
+              Live tracking
+            </Link>
           </div>
         </div>
-        <img src={truck} alt="Grain transport truck" width={1024} height={768} className="h-full max-h-80 w-full object-cover" />
+        <img
+          src={truck}
+          alt="Grain transport truck"
+          width={1024}
+          height={768}
+          className="h-full max-h-80 w-full object-cover"
+        />
       </section>
+
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
         {tiles.map((t) => (
-          <Link key={t.to} to={t.to} className="group rounded-lg border border-border bg-card p-5 shadow-card transition hover:-translate-y-0.5 hover:border-accent">
+          <Link
+            key={t.to}
+            to={t.to}
+            className="group rounded-lg border border-border bg-card p-5 shadow-card transition hover:-translate-y-0.5 hover:border-accent"
+          >
             <t.icon className="mb-3 h-8 w-8 text-primary" />
             <div className="font-semibold text-navy">{t.label}</div>
             <div className="text-sm text-muted-foreground">{t.desc}</div>

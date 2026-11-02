@@ -420,10 +420,13 @@ async function processVerification(verification) {
   const tripStatus = verStatus === "fail" ? "rejected" : verStatus;
 
   if (["pass", "fail", "retake", "manual_review"].includes(verStatus)) {
+    // Only update if trip is still open (submitted/processing).
+    // Prevents delayed AI worker from silently overwriting an officer's manual review decision.
     const { error: tripUpdateError } = await adminClient
       .from("trips")
       .update({ status: tripStatus })
-      .eq("id", trip_id);
+      .eq("id", trip_id)
+      .in("status", ["submitted", "processing"]);
 
     if (tripUpdateError) {
       console.error(

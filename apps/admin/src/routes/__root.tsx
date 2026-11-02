@@ -87,9 +87,15 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
       { title: "GrainShield AI — Admin" },
-      { name: "description", content: "AI-powered food grain transport verification for Government of Gujarat." },
+      {
+        name: "description",
+        content: "AI-powered food grain transport verification for Government of Gujarat.",
+      },
       { property: "og:title", content: "GrainShield AI — Admin" },
-      { property: "og:description", content: "AI-powered food grain transport verification for Government of Gujarat." },
+      {
+        property: "og:description",
+        content: "AI-powered food grain transport verification for Government of Gujarat.",
+      },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
     ],

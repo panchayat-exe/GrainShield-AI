@@ -1,9 +1,16 @@
 import { createFileRoute } from "@tanstack/react-router";
-import { useEffect, useRef, useState } from "react";
-import { LocateFixed, Minus, Plus, Search, Truck } from "lucide-react";
+import { useEffect, useRef, useState, useCallback } from "react";
+import { LocateFixed, Minus, Plus, Search, Truck, Radio, RefreshCw } from "lucide-react";
 import { Badge, Card, PageHeader } from "@/components/admin/AdminShell";
 import { getActiveTripLocations, type ActiveTripLocation } from "@/lib/admin-queries";
+import { supabase } from "@/lib/supabase";
+import type * as Leaflet from "leaflet";
 import "leaflet/dist/leaflet.css";
+
+interface LeafletMapWrapper {
+  map: Leaflet.Map;
+  L: typeof Leaflet;
+}
 
 export const Route = createFileRoute("/live-tracking")({
   loader: () => getActiveTripLocations(),
@@ -31,9 +38,9 @@ const stageLabel = {
 } as const;
 
 const stageColor: Record<string, string> = {
-  first_mile: "#3b82f6",  // blue
-  mid_mile:   "#f59e0b",  // amber
-  last_mile:  "#22c55e",  // green
+  first_mile: "#3b82f6", // blue
+  mid_mile: "#f59e0b", // amber
+  last_mile: "#22c55e", // green
 };
 
 function formatRelative(iso: string) {
@@ -43,7 +50,15 @@ function formatRelative(iso: string) {
   return `${Math.floor(diff / 3600)}h ago`;
 }
 
-function TripCard({ loc, selected, onSelect }: { loc: ActiveTripLocation; selected: boolean; onSelect: () => void }) {
+function TripCard({
+  loc,
+  selected,
+  onSelect,
+}: {
+  loc: ActiveTripLocation;
+  selected: boolean;
+  onSelect: () => void;
+}) {
   return (
     <div
       onClick={onSelect}
@@ -73,7 +88,9 @@ function TripCard({ loc, selected, onSelect }: { loc: ActiveTripLocation; select
         <span className="text-muted-foreground">{formatRelative(loc.recordedAt)}</span>
       </div>
       {loc.accuracyMeters != null && (
-        <div className="mt-1 text-xs text-muted-foreground">±{Math.round(loc.accuracyMeters)} m accuracy</div>
+        <div className="mt-1 text-xs text-muted-foreground">
+          ±{Math.round(loc.accuracyMeters)} m accuracy
+        </div>
       )}
     </div>
   );
@@ -81,73 +98,30 @@ function TripCard({ loc, selected, onSelect }: { loc: ActiveTripLocation; select
 
 /**
  * LeafletMap — renders real OpenStreetMap tiles with vehicle markers.
- * Uses lazy import to avoid SSR issues.
+ * Dynamically re-renders markers when locations state updates via Realtime.
  */
-function LeafletMap({ locations, selectedId, onSelect }: {
+function LeafletMap({
+  locations,
+  selectedId,
+  onSelect,
+}: {
   locations: ActiveTripLocation[];
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<any>(null);
-  const markersRef = useRef<Record<string, any>>({});
+  const mapInstanceRef = useRef<LeafletMapWrapper | null>(null);
+  const markersRef = useRef<Record<string, Leaflet.Marker>>({});
 
-  // Gujarat center as default view
   const GUJARAT_CENTER: [number, number] = [22.309, 72.136];
 
-  useEffect(() => {
-    if (!mapRef.current) return;
-    if (mapInstanceRef.current || mapRef.current?.dataset["leafletId"]) return; // already init
-
-    // Dynamically import Leaflet to avoid SSR
-    import("leaflet").then((L) => {
-      // Fix default icon paths (Webpack/Vite strips them)
-      delete (L.Icon.Default.prototype as any)._getIconUrl;
-      L.Icon.Default.mergeOptions({
-        iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
-        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
-        shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
-      });
-
-      const map = L.map(mapRef.current!, {
-        center: GUJARAT_CENTER,
-        zoom: locations.length > 0 ? 8 : 7,
-        zoomControl: false,
-      });
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-        maxZoom: 19,
-      }).addTo(map);
-
-      mapInstanceRef.current = { map, L };
-      if (mapRef.current) mapRef.current.dataset["leafletId"] = "initialized";
-
-      // Add markers for initial locations
-      addMarkers(L, map, locations, onSelect);
-
-      // Fit bounds if we have locations
-      if (locations.length > 0) {
-        const bounds = L.latLngBounds(locations.map((l) => [l.latitude, l.longitude] as [number, number]));
-        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
-      }
-    });
-
-    return () => {
-      if (mapInstanceRef.current?.map) {
-        mapInstanceRef.current.map.remove();
-        mapInstanceRef.current = null;
-        markersRef.current = {};
-      }
-      if (mapRef.current) {
-        delete mapRef.current.dataset["leafletId"];
-      }
-    };
-  }, []); // init once
-
-  function addMarkers(L: any, map: any, locs: ActiveTripLocation[], onSelect: (id: string) => void) {
-    // Remove old markers
-    Object.values(markersRef.current).forEach((m: any) => m.remove());
+  function addMarkers(
+    L: typeof Leaflet,
+    map: Leaflet.Map,
+    locs: ActiveTripLocation[],
+    onSelectFn: (id: string) => void,
+  ) {
+    Object.values(markersRef.current).forEach((m) => m.remove());
     markersRef.current = {};
 
     locs.forEach((loc) => {
@@ -171,12 +145,68 @@ function LeafletMap({ locations, selectedId, onSelect }: {
             ${loc.vehicleNumber}<br/>
             ${loc.driverName ?? ""}<br/>
             <span style="font-size:11px;color:#888">${loc.origin} → ${loc.destination ?? "—"}</span>
-          </div>`
+          </div>`,
         )
-        .on("click", () => onSelect(loc.tripId));
+        .on("click", () => onSelectFn(loc.tripId));
       markersRef.current[loc.tripId] = marker;
     });
   }
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (mapInstanceRef.current || mapRef.current?.dataset["leafletId"]) return;
+    const currentRef = mapRef.current;
+
+    import("leaflet").then((L) => {
+      delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+        shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+      });
+
+      const map = L.map(currentRef, {
+        center: GUJARAT_CENTER,
+        zoom: locations.length > 0 ? 8 : 7,
+        zoomControl: false,
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      }).addTo(map);
+
+      mapInstanceRef.current = { map, L };
+      currentRef.dataset["leafletId"] = "initialized";
+
+      addMarkers(L, map, locations, onSelect);
+
+      if (locations.length > 0) {
+        const bounds = L.latLngBounds(
+          locations.map((l) => [l.latitude, l.longitude] as [number, number]),
+        );
+        map.fitBounds(bounds, { padding: [40, 40], maxZoom: 12 });
+      }
+    });
+
+    return () => {
+      if (mapInstanceRef.current?.map) {
+        mapInstanceRef.current.map.remove();
+        mapInstanceRef.current = null;
+        markersRef.current = {};
+      }
+      if (currentRef) {
+        delete currentRef.dataset["leafletId"];
+      }
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update markers when locations array updates
+  useEffect(() => {
+    if (mapInstanceRef.current?.map && mapInstanceRef.current?.L) {
+      addMarkers(mapInstanceRef.current.L, mapInstanceRef.current.map, locations, onSelect);
+    }
+  }, [locations, onSelect]);
 
   // Pan to selected marker
   useEffect(() => {
@@ -192,15 +222,54 @@ function LeafletMap({ locations, selectedId, onSelect }: {
 }
 
 function Live() {
-  const { locations, error } = Route.useLoaderData();
+  const initial = Route.useLoaderData();
+  const [locations, setLocations] = useState<ActiveTripLocation[]>(initial.locations);
+  const [error, setError] = useState<string | null>(initial.error);
   const [search, setSearch] = useState("");
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
+  const [isRefreshing, setIsRefreshing] = useState(false);
+
+  const refreshLocations = useCallback(async () => {
+    setIsRefreshing(true);
+    const fresh = await getActiveTripLocations();
+    setLocations(fresh.locations);
+    setError(fresh.error);
+    setLastRefreshed(new Date());
+    setIsRefreshing(false);
+  }, []);
+
+  // Realtime subscription to new GPS telemetry
+  useEffect(() => {
+    const channel = supabase
+      .channel("admin-live-tracking")
+      .on(
+        "postgres_changes",
+        { event: "INSERT", schema: "public", table: "trip_locations" },
+        () => {
+          refreshLocations();
+        },
+      )
+      .on("postgres_changes", { event: "UPDATE", schema: "public", table: "trips" }, () => {
+        refreshLocations();
+      })
+      .subscribe();
+
+    // 15-second polling fallback
+    const interval = setInterval(refreshLocations, 15000);
+
+    return () => {
+      supabase.removeChannel(channel);
+      clearInterval(interval);
+    };
+  }, [refreshLocations]);
 
   const filtered = search
     ? locations.filter(
         (l) =>
           l.tripCode.toLowerCase().includes(search.toLowerCase()) ||
-          l.vehicleNumber.toLowerCase().includes(search.toLowerCase())
+          l.vehicleNumber.toLowerCase().includes(search.toLowerCase()) ||
+          (l.driverName ?? "").toLowerCase().includes(search.toLowerCase()),
       )
     : locations;
 
@@ -208,18 +277,42 @@ function Live() {
     <>
       <PageHeader
         crumbs={[{ label: "Live Tracking" }]}
-        title="Trip Live Tracking"
+        title="Active Vehicle Live Tracking"
+        subtitle="Real-time telemetry and route monitoring for in-transit grain consignments"
         right={
-          <div className="flex gap-2">
-            <input
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              placeholder="Search Trip ID, Vehicle No…"
-              className="h-11 w-56 rounded-md border border-input bg-card px-3 text-sm"
-            />
-            <button aria-label="Search" className="grid h-11 w-11 place-items-center rounded-md bg-info text-primary-foreground">
-              <Search className="h-5 w-5" />
+          <div className="flex items-center gap-3">
+            <div className="flex items-center gap-2 rounded-md bg-muted/40 px-3 py-1.5 text-xs text-muted-foreground">
+              <span className="relative flex h-2 w-2">
+                <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-success opacity-75"></span>
+                <span className="relative inline-flex rounded-full h-2 w-2 bg-success"></span>
+              </span>
+              <span>Live Telemetry</span>
+              <span className="opacity-60">• {lastRefreshed.toLocaleTimeString("en-IN")}</span>
+            </div>
+
+            <button
+              onClick={refreshLocations}
+              disabled={isRefreshing}
+              className="rounded-md border border-input bg-card p-2 text-muted-foreground hover:text-foreground"
+              title="Refresh positions"
+            >
+              <RefreshCw className={`h-4 w-4 ${isRefreshing ? "animate-spin" : ""}`} />
             </button>
+
+            <div className="flex gap-2">
+              <input
+                value={search}
+                onChange={(e) => setSearch(e.target.value)}
+                placeholder="Search Trip ID, Vehicle No…"
+                className="h-10 w-56 rounded-md border border-input bg-card px-3 text-sm"
+              />
+              <button
+                aria-label="Search"
+                className="grid h-10 w-10 place-items-center rounded-md bg-info text-primary-foreground"
+              >
+                <Search className="h-4 w-4" />
+              </button>
+            </div>
           </div>
         }
       />
@@ -234,32 +327,42 @@ function Live() {
         {/* Map panel */}
         <div>
           <div className="relative">
-            <LeafletMap
-              locations={filtered}
-              selectedId={selectedId}
-              onSelect={setSelectedId}
-            />
+            <LeafletMap locations={filtered} selectedId={selectedId} onSelect={setSelectedId} />
             {/* Active count badge */}
-            <div className="absolute left-3 top-3 z-[1000] rounded-md bg-navy/90 px-3 py-1.5 text-sm font-medium text-white">
-              {filtered.length} active vehicle{filtered.length !== 1 ? "s" : ""}
+            <div className="absolute left-3 top-3 z-[1000] rounded-md bg-navy/90 px-3 py-1.5 text-sm font-medium text-white shadow-md">
+              {filtered.length} active vehicle{filtered.length !== 1 ? "s" : ""} in transit
             </div>
           </div>
 
           <div className="mt-3 flex flex-wrap justify-around gap-3 rounded-lg border border-border bg-card p-3 text-sm shadow-card">
-            <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-info" />First Mile</span>
-            <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-warning" />Mid Mile</span>
-            <span className="flex items-center gap-2"><span className="h-3 w-3 rounded-full bg-success" />Last Mile</span>
+            <span className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-info" />
+              First Mile (Blue)
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-warning" />
+              Mid Mile (Amber)
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="h-3 w-3 rounded-full bg-success" />
+              Last Mile (Green)
+            </span>
           </div>
         </div>
 
         {/* Sidebar */}
         <div className="space-y-4">
-          <Card title={`Active Vehicles (${filtered.length})`}>
+          <Card title={`In-Transit Fleet (${filtered.length})`}>
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center gap-3 py-8 text-center text-muted-foreground">
                 <Truck className="h-10 w-10 opacity-30" />
-                <p className="text-sm">No active trips with GPS data right now.</p>
-                <p className="text-xs">Locations are uploaded by the mobile app during transport.</p>
+                <p className="text-sm font-medium">
+                  No vehicles reporting GPS coordinates right now.
+                </p>
+                <p className="text-xs">
+                  Location telemetry streams automatically from the driver mobile application during
+                  active transport.
+                </p>
               </div>
             ) : (
               <div className="max-h-[480px] space-y-3 overflow-y-auto pr-1">

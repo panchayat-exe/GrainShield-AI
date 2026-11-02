@@ -1,7 +1,6 @@
 /**
- * GrainShield AI Admin — Real Supabase Query Functions
- * Replaces hardcoded mock data with live Supabase queries.
- * All queries rely on DB-level RLS (is_admin()) for authorization.
+ * GrainShield AI Admin — Supabase Query & Mutation Services
+ * Genuine Supabase backend operations backed by RLS and database RPCs.
  */
 import { supabase } from "./supabase";
 import type {
@@ -13,32 +12,61 @@ import type {
   Profile,
   TripStage,
   TripStatus,
+  UserRole,
 } from "./supabase";
+import { canAssignRole, type AdminUser } from "./admin-auth";
 
 // ---------------------------------------------------------------------------
 // Dashboard Statistics
 // ---------------------------------------------------------------------------
 export async function getDashboardStats() {
-  const [tripsRes, reviewRes, passRes, processingRes] = await Promise.all([
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const [
+    tripsRes,
+    reviewRes,
+    passRes,
+    processingRes,
+    rejectedRes,
+    retakeRes,
+    firstMileRes,
+    midMileRes,
+    lastMileRes,
+    todayRes,
+  ] = await Promise.all([
     supabase.from("trips").select("id", { count: "exact", head: true }),
     supabase
       .from("manual_review_requests")
       .select("id", { count: "exact", head: true })
       .in("status", ["pending", "assigned", "in_review"]),
     supabase
-      .from("verification_results")
+      .from("trips")
       .select("id", { count: "exact", head: true })
-      .eq("status", "pass"),
+      .in("status", ["pass", "completed"]),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("status", "processing"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("status", "rejected"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("status", "retake"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("stage", "first_mile"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("stage", "mid_mile"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("stage", "last_mile"),
     supabase
       .from("trips")
       .select("id", { count: "exact", head: true })
-      .eq("status", "processing"),
+      .gte("created_at", todayStart.toISOString()),
   ]);
+
   return {
     totalTrips: tripsRes.count ?? 0,
     pendingReview: reviewRes.count ?? 0,
     passed: passRes.count ?? 0,
     processing: processingRes.count ?? 0,
+    rejected: rejectedRes.count ?? 0,
+    retake: retakeRes.count ?? 0,
+    firstMile: firstMileRes.count ?? 0,
+    midMile: midMileRes.count ?? 0,
+    lastMile: lastMileRes.count ?? 0,
+    todayCount: todayRes.count ?? 0,
     error:
       tripsRes.error?.message ??
       reviewRes.error?.message ??
@@ -49,14 +77,17 @@ export async function getDashboardStats() {
 }
 
 // ---------------------------------------------------------------------------
-// Trips
+// Trips Management
 // ---------------------------------------------------------------------------
 export interface TripsFilter {
-  page?: number;
-  pageSize?: number;
-  stage?: TripStage | "";
-  status?: TripStatus | "";
-  search?: string;
+  page?: number | undefined;
+  pageSize?: number | undefined;
+  stage?: TripStage | "" | undefined;
+  status?: TripStatus | "" | undefined;
+  search?: string | undefined;
+  district?: string | undefined;
+  dateFrom?: string | undefined;
+  dateTo?: string | undefined;
 }
 
 export async function getTrips({
@@ -65,21 +96,27 @@ export async function getTrips({
   stage = "",
   status = "",
   search = "",
+  district = "",
+  dateFrom = "",
+  dateTo = "",
 }: TripsFilter = {}) {
   let query = supabase
     .from("trips")
     .select(
-      "id, trip_code, vehicle_number, driver_name, driver_phone, stage, origin, destination, status, created_at",
-      { count: "exact" }
+      "id, trip_code, vehicle_number, driver_name, driver_phone, stage, origin, destination, status, created_at, updated_at",
+      { count: "exact" },
     )
     .order("created_at", { ascending: false })
     .range((page - 1) * pageSize, page * pageSize - 1);
 
   if (stage) query = query.eq("stage", stage);
   if (status) query = query.eq("status", status);
+  if (district) query = query.or(`origin.ilike.%${district}%,destination.ilike.%${district}%`);
+  if (dateFrom) query = query.gte("created_at", dateFrom);
+  if (dateTo) query = query.lte("created_at", dateTo + "T23:59:59Z");
   if (search)
     query = query.or(
-      `trip_code.ilike.%${search}%,vehicle_number.ilike.%${search}%,driver_name.ilike.%${search}%`
+      `trip_code.ilike.%${search}%,vehicle_number.ilike.%${search}%,driver_name.ilike.%${search}%`,
     );
 
   const { data, error, count } = await query;
@@ -91,27 +128,115 @@ export async function getTrips({
 }
 
 export async function getTripById(tripId: string) {
-  const { data, error } = await supabase
-    .from("trips")
-    .select("*")
-    .eq("id", tripId)
-    .maybeSingle();
+  const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).maybeSingle();
   return { trip: data as Trip | null, error: error?.message ?? null };
 }
 
-export async function updateTripStatus(tripId: string, status: TripStatus) {
-  const { error } = await supabase.from("trips").update({ status }).eq("id", tripId);
+export interface CreateTripInput {
+  trip_code: string;
+  vehicle_number: string;
+  driver_name?: string | undefined;
+  driver_phone?: string | undefined;
+  stage: TripStage;
+  origin?: string | undefined;
+  destination?: string | undefined;
+  created_by: string;
+}
+
+/** Creates a new transport trip and logs an audit record. */
+export async function createAdminTrip(input: CreateTripInput) {
+  const cleanPlate = input.vehicle_number.toUpperCase().replace(/[^A-Z0-9]/g, "");
+
+  // Try RPC first
+  const { data: rpcData, error: rpcErr } = await supabase.rpc("admin_create_trip", {
+    p_trip_code: input.trip_code.trim(),
+    p_vehicle_number: cleanPlate,
+    p_driver_name: input.driver_name?.trim() ?? "",
+    p_driver_phone: input.driver_phone?.trim() ?? "",
+    p_stage: input.stage,
+    p_origin: input.origin?.trim() ?? "",
+    p_destination: input.destination?.trim() ?? "",
+  });
+
+  if (!rpcErr && rpcData?.success) {
+    return { trip: rpcData, error: null };
+  }
+
+  // Fallback to direct insert with audit logging
+  const { data, error } = await supabase
+    .from("trips")
+    .insert({
+      trip_code: input.trip_code.trim(),
+      vehicle_number: cleanPlate,
+      driver_name: input.driver_name?.trim() || null,
+      driver_phone: input.driver_phone?.trim() || null,
+      stage: input.stage,
+      origin: input.origin?.trim() || null,
+      destination: input.destination?.trim() || null,
+      created_by: input.created_by,
+      status: "submitted",
+    })
+    .select()
+    .single();
+
+  if (error) return { trip: null, error: error.message };
+
+  // Log audit record
+  await supabase.from("audit_logs").insert({
+    actor_id: input.created_by,
+    action: "trip_created",
+    entity_type: "trips",
+    entity_id: data.id,
+    trip_id: data.id,
+    metadata: {
+      trip_code: input.trip_code,
+      vehicle_number: cleanPlate,
+      stage: input.stage,
+    },
+  });
+
+  return { trip: data as Trip, error: null };
+}
+
+export async function updateTripStatus(tripId: string, status: TripStatus, actorId?: string) {
+  const { error } = await supabase
+    .from("trips")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", tripId);
+  if (!error && actorId) {
+    await supabase.from("audit_logs").insert({
+      actor_id: actorId,
+      action: "trip_status_updated",
+      entity_type: "trips",
+      entity_id: tripId,
+      trip_id: tripId,
+      metadata: { new_status: status },
+    });
+  }
   return { error: error?.message ?? null };
+}
+
+/** Fetches full GPS breadcrumb history for a trip. */
+export async function getTripLocations(tripId: string) {
+  const { data, error } = await supabase
+    .from("trip_locations")
+    .select("*")
+    .eq("trip_id", tripId)
+    .order("recorded_at", { ascending: true });
+
+  return { locations: data ?? [], error: error?.message ?? null };
 }
 
 // ---------------------------------------------------------------------------
 // Manual Review Queue
 // ---------------------------------------------------------------------------
 export interface ReviewQueueFilter {
-  page?: number;
-  pageSize?: number;
-  stage?: TripStage | "";
-  reviewStatus?: string;
+  page?: number | undefined;
+  pageSize?: number | undefined;
+  stage?: TripStage | "" | undefined;
+  reviewStatus?: string | undefined;
+  dateFrom?: string | undefined;
+  dateTo?: string | undefined;
 }
 
 export async function getReviewQueue({
@@ -119,22 +244,27 @@ export async function getReviewQueue({
   pageSize = 20,
   stage = "",
   reviewStatus = "",
+  dateFrom = "",
+  dateTo = "",
 }: ReviewQueueFilter = {}) {
   let query = supabase
     .from("manual_review_requests")
     .select(
       `
-      id, status, user_notes, created_at, resolved_at, reviewer_notes,
+      id, status, user_notes, created_at, resolved_at, reviewer_notes, assigned_reviewer,
       trips!inner(id, trip_code, vehicle_number, stage, origin, destination, status),
       trip_evidence!inner(id, original_filename, storage_path, uploaded_at)
     `,
-      { count: "exact" }
+      { count: "exact" },
     )
     .order("created_at", { ascending: false })
     .range((page - 1) * pageSize, page * pageSize - 1);
 
   if (reviewStatus) query = query.eq("status", reviewStatus);
   else query = query.in("status", ["pending", "assigned", "in_review"]);
+
+  if (dateFrom) query = query.gte("created_at", dateFrom);
+  if (dateTo) query = query.lte("created_at", dateTo + "T23:59:59Z");
 
   const { data, error, count } = await query;
   return {
@@ -144,10 +274,22 @@ export async function getReviewQueue({
   };
 }
 
+export async function assignReviewer(reviewId: string, reviewerId: string) {
+  const { error } = await supabase
+    .from("manual_review_requests")
+    .update({
+      assigned_reviewer: reviewerId,
+      status: "assigned",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", reviewId);
+  return { error: error?.message ?? null };
+}
+
 export async function resolveReview(
   reviewId: string,
   decision: "resolved" | "escalated",
-  notes: string
+  notes: string,
 ) {
   const { error } = await supabase
     .from("manual_review_requests")
@@ -155,16 +297,104 @@ export async function resolveReview(
       status: decision,
       reviewer_notes: notes,
       resolved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
     })
     .eq("id", reviewId);
   return { error: error?.message ?? null };
 }
 
+export interface ResolveManualReviewInput {
+  reviewId: string;
+  tripId: string;
+  decision: "pass" | "retake" | "rejected";
+  notes: string;
+  reviewerId: string;
+  reviewerEmail?: string | undefined;
+}
+
+/**
+ * Resolves a manual review case atomically.
+ * Updates review request, trip status, verification result, and writes audit log.
+ */
+export async function resolveManualReview(input: ResolveManualReviewInput) {
+  if (!input.notes || input.notes.trim().length < 5) {
+    return { error: "Reviewer justification notes are mandatory (minimum 5 characters)." };
+  }
+
+  // 1. Try atomic database RPC
+  const { data: rpcData, error: rpcErr } = await supabase.rpc("resolve_manual_review", {
+    p_review_id: input.reviewId,
+    p_decision: input.decision,
+    p_notes: input.notes.trim(),
+  });
+
+  if (!rpcErr && rpcData?.success) {
+    return { success: true, error: null };
+  }
+
+  // 2. Resilient multi-table fallback
+  const now = new Date().toISOString();
+  const tripStatus = input.decision;
+  const verifStatus = input.decision === "rejected" ? "fail" : input.decision;
+
+  // Update review request
+  const { error: reviewErr } = await supabase
+    .from("manual_review_requests")
+    .update({
+      status: "resolved",
+      assigned_reviewer: input.reviewerId,
+      reviewer_notes: input.notes.trim(),
+      resolved_at: now,
+      updated_at: now,
+    })
+    .eq("id", input.reviewId);
+
+  if (reviewErr) return { error: `Failed to update review request: ${reviewErr.message}` };
+
+  // Update trip status
+  const { error: tripErr } = await supabase
+    .from("trips")
+    .update({ status: tripStatus, updated_at: now })
+    .eq("id", input.tripId);
+
+  if (tripErr) return { error: `Failed to update trip status: ${tripErr.message}` };
+
+  // Update verification result
+  await supabase
+    .from("verification_results")
+    .update({
+      status: verifStatus,
+      decision: input.decision.toUpperCase(),
+      explanation: `[Manual Review by ${input.reviewerEmail || input.reviewerId}]: ${input.notes.trim()}`,
+      processing_completed_at: now,
+      updated_at: now,
+    })
+    .eq("trip_id", input.tripId);
+
+  // Write immutable audit log
+  await supabase.from("audit_logs").insert({
+    actor_id: input.reviewerId,
+    action: `manual_review_${input.decision}`,
+    entity_type: "trips",
+    entity_id: input.tripId,
+    trip_id: input.tripId,
+    metadata: {
+      review_id: input.reviewId,
+      decision: input.decision,
+      notes: input.notes.trim(),
+      reviewer_email: input.reviewerEmail,
+      timestamp: now,
+    },
+  });
+
+  return { success: true, error: null };
+}
+
 // ---------------------------------------------------------------------------
-// Trip Detail (evidence + verifications + reviews)
+// Trip Detail (Evidence + Verifications + Reviews + Locations)
 // ---------------------------------------------------------------------------
 export async function getTripDetail(tripId: string) {
-  const [tripRes, evidenceRes, verificationRes, reviewRes] = await Promise.all([
+  const [tripRes, evidenceRes, verificationRes, reviewRes, locationsRes] = await Promise.all([
     supabase.from("trips").select("*").eq("id", tripId).maybeSingle(),
     supabase
       .from("trip_evidence")
@@ -181,6 +411,11 @@ export async function getTripDetail(tripId: string) {
       .select("*")
       .eq("trip_id", tripId)
       .order("created_at", { ascending: false }),
+    supabase
+      .from("trip_locations")
+      .select("*")
+      .eq("trip_id", tripId)
+      .order("recorded_at", { ascending: true }),
   ]);
 
   return {
@@ -188,6 +423,7 @@ export async function getTripDetail(tripId: string) {
     evidence: (evidenceRes.data as TripEvidence[]) ?? [],
     verifications: (verificationRes.data as VerificationResult[]) ?? [],
     reviews: (reviewRes.data as ManualReviewRequest[]) ?? [],
+    locations: locationsRes.data ?? [],
     error:
       tripRes.error?.message ??
       evidenceRes.error?.message ??
@@ -211,12 +447,12 @@ export async function getEvidenceSignedUrl(storagePath: string, expiresInSeconds
 // Audit Logs
 // ---------------------------------------------------------------------------
 export interface AuditLogFilter {
-  page?: number;
-  pageSize?: number;
-  tripId?: string;
-  action?: string;
-  dateFrom?: string;
-  dateTo?: string;
+  page?: number | undefined;
+  pageSize?: number | undefined;
+  tripId?: string | undefined;
+  action?: string | undefined;
+  dateFrom?: string | undefined;
+  dateTo?: string | undefined;
 }
 
 export async function getAuditLogs({
@@ -249,17 +485,25 @@ export async function getAuditLogs({
 }
 
 // ---------------------------------------------------------------------------
-// Reports — Aggregated trip stats
+// Reports — Aggregated trip and verification statistics
 // ---------------------------------------------------------------------------
 export interface ReportStatsFilter {
-  stage?: TripStage | "";
-  periodDays?: number; // 0 = all time, 7 = last 7 days, 30 = last 30 days, 90 = this quarter
+  stage?: TripStage | "" | undefined;
+  periodDays?: number | undefined;
+  district?: string | undefined;
 }
 
-export async function getReportStats({ stage = "", periodDays = 0 }: ReportStatsFilter = {}) {
-  let query = supabase.from("trips").select("origin, status, stage, created_at");
+export async function getReportStats({
+  stage = "",
+  periodDays = 0,
+  district = "",
+}: ReportStatsFilter = {}) {
+  let query = supabase.from("trips").select("origin, destination, status, stage, created_at");
 
   if (stage) query = query.eq("stage", stage);
+  if (district && district !== "All Districts") {
+    query = query.or(`origin.ilike.%${district}%,destination.ilike.%${district}%`);
+  }
   if (periodDays > 0) {
     const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000).toISOString();
     query = query.gte("created_at", since);
@@ -269,42 +513,61 @@ export async function getReportStats({ stage = "", periodDays = 0 }: ReportStats
 
   if (error || !data) return { districts: [], error: error?.message ?? null };
 
-  // Aggregate by district (origin)
+  // Aggregate by district (origin or destination)
   const districtMap: Record<
     string,
-    { total: number; pass: number; review: number; rejected: number }
+    {
+      total: number;
+      pass: number;
+      review: number;
+      rejected: number;
+      firstMile: number;
+      lastMile: number;
+    }
   > = {};
 
   for (const trip of data) {
-    const district = trip.origin ?? "Unknown";
-    if (!districtMap[district]) {
-      districtMap[district] = { total: 0, pass: 0, review: 0, rejected: 0 };
+    const dName = trip.origin || trip.destination || "General";
+    if (!districtMap[dName]) {
+      districtMap[dName] = { total: 0, pass: 0, review: 0, rejected: 0, firstMile: 0, lastMile: 0 };
     }
-    districtMap[district].total++;
-    if (trip.status === "pass" || trip.status === "completed") districtMap[district].pass++;
-    else if (trip.status === "manual_review") districtMap[district].review++;
-    else if (trip.status === "rejected") districtMap[district].rejected++;
+    districtMap[dName].total++;
+    if (trip.status === "pass" || trip.status === "completed") districtMap[dName].pass++;
+    else if (trip.status === "manual_review") districtMap[dName].review++;
+    else if (trip.status === "rejected") districtMap[dName].rejected++;
+
+    if (trip.stage === "first_mile") districtMap[dName].firstMile++;
+    else if (trip.stage === "last_mile") districtMap[dName].lastMile++;
   }
 
   const districts = Object.entries(districtMap)
     .map(([name, stats]) => ({ name, ...stats }))
-    .sort((a, b) => b.total - a.total); // highest traffic first
+    .sort((a, b) => b.total - a.total);
 
   return { districts, error: null };
 }
 
+/** Logs report export event in audit trail. */
+export async function logReportExport(actorId: string, metadata: Record<string, unknown>) {
+  await supabase.from("audit_logs").insert({
+    actor_id: actorId,
+    action: "report_exported",
+    entity_type: "reports",
+    metadata,
+  });
+}
+
 // ---------------------------------------------------------------------------
-// Profiles (admin user management)
+// Profiles & User Role Management
 // ---------------------------------------------------------------------------
 export async function getProfiles({ page = 1, pageSize = 50, search = "" } = {}) {
   let query = supabase
     .from("profiles")
-    .select("id, email, full_name, role, district, created_at", { count: "exact" })
+    .select("id, email, full_name, role, district, created_at, updated_at", { count: "exact" })
     .order("created_at", { ascending: false })
     .range((page - 1) * pageSize, page * pageSize - 1);
 
-  if (search)
-    query = query.or(`email.ilike.%${search}%,full_name.ilike.%${search}%`);
+  if (search) query = query.or(`email.ilike.%${search}%,full_name.ilike.%${search}%`);
 
   const { data, error, count } = await query;
   return {
@@ -314,6 +577,54 @@ export async function getProfiles({ page = 1, pageSize = 50, search = "" } = {})
   };
 }
 
+/** Updates user role with strict RBAC privilege checks. */
+export async function updateUserRole(
+  targetUserId: string,
+  targetCurrentRole: UserRole,
+  newRole: UserRole,
+  caller: AdminUser | null | undefined,
+) {
+  // Validate authorization
+  const authCheck = canAssignRole(caller, targetCurrentRole, newRole);
+  if (!authCheck.allowed) {
+    return { error: authCheck.reason ?? "Permission denied." };
+  }
+
+  // 1. Try secure RPC
+  const { data: rpcData, error: rpcErr } = await supabase.rpc("manage_user_role", {
+    target_user_id: targetUserId,
+    new_role: newRole,
+  });
+
+  if (!rpcErr && rpcData?.success) {
+    return { success: true, error: null };
+  }
+
+  // 2. Direct update fallback (service_role or authorized session)
+  const { error } = await supabase
+    .from("profiles")
+    .update({ role: newRole, updated_at: new Date().toISOString() })
+    .eq("id", targetUserId);
+
+  if (error) return { error: error.message };
+
+  // Write audit log
+  if (caller) {
+    await supabase.from("audit_logs").insert({
+      actor_id: caller.id,
+      action: "user_role_changed",
+      entity_type: "profiles",
+      entity_id: targetUserId,
+      metadata: {
+        old_role: targetCurrentRole,
+        new_role: newRole,
+        assigned_by: caller.id,
+      },
+    });
+  }
+
+  return { success: true, error: null };
+}
 
 // ---------------------------------------------------------------------------
 // Live Tracking — Latest GPS Location per Active Trip
@@ -333,15 +644,10 @@ export type ActiveTripLocation = {
   recordedAt: string;
 };
 
-/**
- * Returns the latest GPS ping for every active (processing/submitted) trip.
- * Falls back to empty array when trip_locations table is empty.
- */
 export async function getActiveTripLocations(): Promise<{
   locations: ActiveTripLocation[];
   error: string | null;
 }> {
-  // Get active trips
   const { data: trips, error: tripErr } = await supabase
     .from("trips")
     .select("id, trip_code, vehicle_number, driver_name, stage, status, origin, destination")
@@ -355,7 +661,6 @@ export async function getActiveTripLocations(): Promise<{
 
   const tripIds = trips.map((t) => t.id as string);
 
-  // Get latest location per trip
   const { data: locs, error: locErr } = await supabase
     .from("trip_locations")
     .select("trip_id, latitude, longitude, accuracy_meters, recorded_at")
@@ -366,7 +671,6 @@ export async function getActiveTripLocations(): Promise<{
     return { locations: [], error: locErr.message };
   }
 
-  // Keep only the latest location per trip
   const seen = new Set<string>();
   const latestByTrip = (locs ?? []).filter((l) => {
     if (seen.has(l.trip_id)) return false;

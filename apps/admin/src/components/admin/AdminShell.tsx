@@ -13,7 +13,13 @@ const nav = [
   { to: "/users", label: "Users" },
 ] as const;
 
-export function AdminShell({ children, adminUser }: { children: ReactNode; adminUser: AdminUser | null }) {
+export function AdminShell({
+  children,
+  adminUser,
+}: {
+  children: ReactNode;
+  adminUser: AdminUser | null;
+}) {
   const path = useRouterState({ select: (r) => r.location.pathname });
   const navigate = useNavigate();
   const isActive = (to: string) => (to === "/" ? path === "/" : path.startsWith(to));
@@ -24,16 +30,28 @@ export function AdminShell({ children, adminUser }: { children: ReactNode; admin
   }
 
   const displayName = adminUser?.full_name ?? adminUser?.email?.split("@")[0] ?? "Admin";
-  const roleLabel = adminUser?.role === "super_admin" ? "Super Admin" : adminUser?.role === "officer" ? "Officer" : "Admin";
+  const roleLabel =
+    adminUser?.role === "super_admin"
+      ? "Super Admin"
+      : adminUser?.role === "officer"
+        ? "Officer"
+        : "Admin";
 
   return (
     <div className="min-h-screen bg-background font-sans text-foreground">
-      <a href="#main" className="sr-only focus:not-sr-only">Skip to main content</a>
+      <a href="#main" className="sr-only focus:not-sr-only">
+        Skip to main content
+      </a>
       <header className="bg-header text-primary-foreground">
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 py-2 text-sm">
-          <div className="flex items-center gap-2"><Landmark className="h-4 w-4" />Government of Gujarat</div>
+          <div className="flex items-center gap-2">
+            <Landmark className="h-4 w-4" />
+            Government of Gujarat
+          </div>
           <div className="hidden items-center gap-3 opacity-90 md:flex">
-            <span className="flex items-center gap-1">English <ChevronDown className="h-3 w-3" /></span>
+            <span className="flex items-center gap-1">
+              English <ChevronDown className="h-3 w-3" />
+            </span>
           </div>
         </div>
         <div className="mx-auto flex max-w-7xl items-center justify-between px-4 pb-4 pt-1">
@@ -80,7 +98,9 @@ export function AdminShell({ children, adminUser }: { children: ReactNode; admin
           ))}
         </div>
       </nav>
-      <main id="main" className="mx-auto max-w-7xl px-4 py-6">{children}</main>
+      <main id="main" className="mx-auto max-w-7xl px-4 py-6">
+        {children}
+      </main>
       <footer className="border-t border-border py-6 text-center text-xs text-muted-foreground">
         © 2026 Food, Civil Supplies &amp; Consumer Affairs Department, Government of Gujarat
       </footer>
@@ -102,11 +122,19 @@ export function PageHeader({
   return (
     <div className="mb-6">
       <div className="mb-3 flex flex-wrap items-center gap-2 text-sm">
-        <Link to="/" className="text-info hover:underline">Home</Link>
+        <Link to="/" className="text-info hover:underline">
+          Home
+        </Link>
         {crumbs.map((c) => (
           <span key={c.label} className="flex items-center gap-2">
             <ChevronRight className="h-4 w-4 text-muted-foreground" />
-            {c.to ? <Link to={c.to} className="text-info hover:underline">{c.label}</Link> : <span>{c.label}</span>}
+            {c.to ? (
+              <Link to={c.to} className="text-info hover:underline">
+                {c.label}
+              </Link>
+            ) : (
+              <span>{c.label}</span>
+            )}
           </span>
         ))}
       </div>
@@ -121,7 +149,17 @@ export function PageHeader({
   );
 }
 
-export function Card({ title, action, children, className = "" }: { title?: string; action?: ReactNode; children: ReactNode; className?: string }) {
+export function Card({
+  title,
+  action,
+  children,
+  className = "",
+}: {
+  title?: string;
+  action?: ReactNode;
+  children: ReactNode;
+  className?: string;
+}) {
   return (
     <section className={`rounded-lg border border-border bg-card shadow-card ${className}`}>
       {title && (
@@ -144,7 +182,13 @@ const tones: Record<Tone, string> = {
   muted: "bg-muted text-muted-foreground",
 };
 export function Badge({ tone, children }: { tone: Tone; children: ReactNode }) {
-  return <span className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium ${tones[tone]}`}>{children}</span>;
+  return (
+    <span
+      className={`inline-flex items-center gap-1 rounded-md px-2.5 py-1 text-sm font-medium ${tones[tone]}`}
+    >
+      {children}
+    </span>
+  );
 }
 
 export function Select({
@@ -162,7 +206,11 @@ export function Select({
       value={value}
       onChange={(e: ChangeEvent<HTMLSelectElement>) => onChange?.(e.target.value)}
     >
-      {options.map((o) => <option key={o} value={o}>{o}</option>)}
+      {options.map((o) => (
+        <option key={o} value={o}>
+          {o}
+        </option>
+      ))}
     </select>
   );
 }
@@ -192,7 +240,13 @@ export function DataTable({ head, rows }: { head: string[]; rows: ReactNode[][] 
       <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
         <table className="w-full text-sm">
           <thead className="bg-info-soft text-left text-navy">
-            <tr>{head.map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
+            <tr>
+              {head.map((h) => (
+                <th key={h} className="px-4 py-3 font-semibold">
+                  {h}
+                </th>
+              ))}
+            </tr>
           </thead>
         </table>
         <div className="py-12 text-center text-muted-foreground text-sm">No records found.</div>
@@ -203,12 +257,22 @@ export function DataTable({ head, rows }: { head: string[]; rows: ReactNode[][] 
     <div className="overflow-x-auto rounded-lg border border-border bg-card shadow-card">
       <table className="w-full text-sm">
         <thead className="bg-info-soft text-left text-navy">
-          <tr>{head.map((h) => <th key={h} className="px-4 py-3 font-semibold">{h}</th>)}</tr>
+          <tr>
+            {head.map((h) => (
+              <th key={h} className="px-4 py-3 font-semibold">
+                {h}
+              </th>
+            ))}
+          </tr>
         </thead>
         <tbody>
           {rows.map((r, i) => (
             <tr key={i} className="border-t border-border hover:bg-muted/60">
-              {r.map((c, j) => <td key={j} className="px-4 py-3.5">{c}</td>)}
+              {r.map((c, j) => (
+                <td key={j} className="px-4 py-3.5">
+                  {c}
+                </td>
+              ))}
             </tr>
           ))}
         </tbody>
@@ -229,7 +293,9 @@ export function Pagination({
   if (last <= 1) return null;
 
   // Build compact page list: always show first, last, current ±1
-  const pages = new Set<number>([1, last, page, page - 1, page + 1].filter((p) => p >= 1 && p <= last));
+  const pages = new Set<number>(
+    [1, last, page, page - 1, page + 1].filter((p) => p >= 1 && p <= last),
+  );
   const sorted = [...pages].sort((a, b) => a - b);
 
   return (
@@ -247,7 +313,9 @@ export function Pagination({
         return (
           <>
             {prev && n - prev > 1 && (
-              <span key={`gap-${n}`} className="px-1 text-muted-foreground">…</span>
+              <span key={`gap-${n}`} className="px-1 text-muted-foreground">
+                …
+              </span>
             )}
             <button
               key={n}
@@ -276,7 +344,10 @@ export function Pagination({
 }
 
 export const btn = {
-  primary: "inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90",
-  outline: "inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-info hover:bg-muted",
-  review: "rounded-md bg-warning-soft px-4 py-1.5 text-sm font-medium text-warning hover:bg-secondary/40",
+  primary:
+    "inline-flex items-center gap-2 rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground hover:bg-primary/90",
+  outline:
+    "inline-flex items-center gap-2 rounded-md border border-input bg-card px-4 py-2 text-sm font-medium text-info hover:bg-muted",
+  review:
+    "rounded-md bg-warning-soft px-4 py-1.5 text-sm font-medium text-warning hover:bg-secondary/40",
 };

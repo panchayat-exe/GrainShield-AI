@@ -129,6 +129,12 @@
   }
 }
 
-@utility bg-header { background-image: var(--gradient-header); }
-@utility bg-nav { background-image: var(--gradient-nav); }
-@utility shadow-card { box-shadow: var(--shadow-card); }
+@utility bg-header {
+  background-image: var(--gradient-header);
+}
+@utility bg-nav {
+  background-image: var(--gradient-nav);
+}
+@utility shadow-card {
+  box-shadow: var(--shadow-card);
+}

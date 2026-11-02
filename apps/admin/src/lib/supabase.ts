@@ -25,12 +25,7 @@ export type TripStatus =
   | "rejected"
   | "completed";
 export type VerificationStatus =
-  | "pending"
-  | "processing"
-  | "pass"
-  | "retake"
-  | "manual_review"
-  | "error";
+  "pending" | "processing" | "pass" | "retake" | "manual_review" | "error";
 export type ReviewStatus = "pending" | "assigned" | "in_review" | "resolved" | "escalated";
 export type UserRole = "user" | "officer" | "admin" | "super_admin";
 
@@ -121,4 +116,14 @@ export interface Profile {
   role: UserRole;
   created_at: string;
   updated_at: string;
+}
+
+export interface TripLocation {
+  id: string;
+  trip_id: string;
+  latitude: number;
+  longitude: number;
+  speed: number | null;
+  heading: number | null;
+  recorded_at: string;
 }
