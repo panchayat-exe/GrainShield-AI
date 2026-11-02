@@ -184,16 +184,23 @@ All migrations live in `database/migrations/`. Apply them in order in the Supaba
 | `006_email_config_notes.sql` | Email setup notes |
 | `007_admin_rls_policies.sql` | Admin-specific RLS + `is_admin()` helper |
 | `008_vehicles_organizations.sql` | Vehicles master + organisations (demo data) |
-| `009_atomic_job_claiming.sql` | `claim_pending_verification()` RPC — **apply this** |
+| `009_atomic_job_claiming.sql` | `claim_pending_verification()` RPC |
+| `010_add_fail_verification_status.sql` | Added `fail` verification status enum |
+| `011_secure_atomic_claim_function.sql` | Secure atomic job claiming with service_role restriction |
+| `012_worker_stale_job_recovery.sql` | Automatic recovery of stale jobs (>5m) with retry tracking |
 
 ---
 
-## Test Credentials (Supabase)
+## Access & Roles (Supabase Auth)
 
-| System | Email | Password | Role |
-|--------|-------|----------|------|
-| Admin Dashboard | `admin@grainshield.gov.in` | `Admin@123456` | super_admin |
-| Citizen Web App | `driver@grainshield.gov.in` | `Driver@123456` | user |
+User accounts and roles are managed via Supabase Auth and the `public.profiles` table:
+
+| Role | Access Level | Description |
+|------|--------------|-------------|
+| `super_admin` | Full Administrative Access | Admin Dashboard (`apps/admin`), manual reviews, user management, audit logs |
+| `user` | Driver / Citizen Access | Citizen Web App (`frontend`), trip submission, evidence photo upload |
+
+> [!NOTE] Passwords must never be committed to repository files. Development and officer accounts are configured in the Supabase Dashboard (`Authentication -> Users`).
 
 ---
 
