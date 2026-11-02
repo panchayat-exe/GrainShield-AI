@@ -1,4 +1,4 @@
-/**
+﻿/**
  * GrainShield AI — Computer Vision Verification Worker
  *
  * This Node.js worker:
@@ -46,7 +46,8 @@ const CV_API_URL = process.env.CV_API_URL ?? "";
 const CV_API_KEY = process.env.CV_API_KEY ?? "";
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? "15000");
 const MAX_RETRIES = Number(process.env.MAX_RETRIES ?? "3");
-const PROCESSING_TIMEOUT_MS = Number(process.env.PROCESSING_TIMEOUT_MS ?? "30000");
+const PROCESSING_TIMEOUT_MS = Number(process.env.PROCESSING_TIMEOUT_MS ?? "90000");
+const WORKER_ID = "worker-" + process.pid + "-" + Date.now();
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error(

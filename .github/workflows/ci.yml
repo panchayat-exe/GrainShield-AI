@@ -9,7 +9,7 @@ on:
 jobs:
   # ── Citizen Frontend ─────────────────────────────────────────────────────
   frontend:
-    name: Frontend — Lint, Test & Build
+    name: Frontend – Lint, Test & Build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -44,7 +44,7 @@ jobs:
 
   # ── Admin Dashboard ───────────────────────────────────────────────────────
   admin:
-    name: Admin — Type Check & Build
+    name: Admin – Type Check & Build
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -65,15 +65,21 @@ jobs:
       - name: Type check
         run: npx tsc --noEmit
 
+      - name: Unit tests
+        run: npm test -- --passWithNoTests
+        env:
+          VITE_SUPABASE_URL: ''
+          VITE_SUPABASE_ANON_KEY: ''
+
       - name: Build
         run: npm run build
         env:
           VITE_SUPABASE_URL: ''
           VITE_SUPABASE_ANON_KEY: ''
 
-  # ── Mobile (TypeScript) ───────────────────────────────────────────────────
+  # ── Mobile (TypeScript) ────────────────────────────────────────────────────
   mobile:
-    name: Mobile — Type Check & Tests
+    name: Mobile – Type Check & Tests
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -99,3 +105,37 @@ jobs:
         env:
           EXPO_PUBLIC_SUPABASE_URL: ''
           EXPO_PUBLIC_SUPABASE_ANON_KEY: ''
+
+  # ── AI Model (Python) ─────────────────────────────────────────────────────
+  ai-model:
+    name: AI Model – Lint, Tests & Syntax
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-model
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: ai-model/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt pytest
+
+      - name: Install Tesseract
+        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
+
+      - name: Syntax check
+        run: |
+          python -c "import ast, pathlib; [ast.parse(f.read_text()) for f in pathlib.Path('src').rglob('*.py')]"
+          echo "Syntax OK"
+
+      - name: Unit tests
+        run: python -m pytest tests/ -v --tb=short
+        env:
+          TESSERACT_CMD: /usr/bin/tesseract
+          MODEL_PATH: yolo26n.pt

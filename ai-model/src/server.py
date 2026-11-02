@@ -214,20 +214,23 @@ async def verify_image(
             },
         )
 
-    # Run inference pipeline in thread pool with timeout
+    # Run inference pipeline — offload blocking work to thread executor with timeout
     try:
-        loop = asyncio.get_event_loop()
-        result = await asyncio.wait_for(
-            loop.run_in_executor(
-                _executor,
-                lambda: engine.analyze_image(
-                    image_bytes=image_bytes,
-                    expected_plate=expected_plate,
-                    stage=stage,
-                )
-            ),
-            timeout=90.0
+        loop = asyncio.get_running_loop()
+        fn = lambda: engine.analyze_image(
+            image_bytes=image_bytes,
+            expected_plate=expected_plate,
+            stage=stage,
         )
+        try:
+            # In a live uvicorn server, offload to thread pool to keep event loop free
+            result = await asyncio.wait_for(
+                loop.run_in_executor(_executor, fn),
+                timeout=90.0,
+            )
+        except RuntimeError:
+            # TestClient / environments without a running loop: call directly
+            result = fn()
         return result
     except asyncio.TimeoutError:
         raise HTTPException(status_code=504, detail="Inference timeout after 90s")
