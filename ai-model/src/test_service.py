@@ -13,7 +13,9 @@ import io
 import cv2
 import numpy as np
 from fastapi.testclient import TestClient
-from src.server import app
+from src.server import API_KEY, app
+
+AUTH_HEADERS = {"Authorization": f"Bearer {API_KEY}"} if API_KEY else {}
 
 client = TestClient(app)
 
@@ -40,6 +42,7 @@ def test_reject_unsupported_mime():
             "/verify",
             files={"image": ("sample.txt", b"not an image", "text/plain")},
             data={"expected_plate": "GJ01AB1234"},
+            headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400
         data = resp.json()
@@ -54,6 +57,7 @@ def test_reject_empty_file():
             "/verify",
             files={"image": ("empty.jpg", b"", "image/jpeg")},
             data={"expected_plate": "GJ01AB1234"},
+            headers=AUTH_HEADERS,
         )
         assert resp.status_code == 400
         data = resp.json()
@@ -71,6 +75,7 @@ def test_plate_verification_real_image():
             "/verify",
             files={"image": ("plate.jpg", img_bytes, "image/jpeg")},
             data={"expected_plate": "GJ05AB1234", "stage": "first_mile"},
+            headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -95,6 +100,7 @@ def test_plate_verification_no_expected_plate():
             "/verify",
             files={"image": ("plate.jpg", img_bytes, "image/jpeg")},
             data={"stage": "first_mile"},
+            headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -115,6 +121,7 @@ def test_blurry_image_triggers_retake():
             "/verify",
             files={"image": ("blurred.jpg", encoded.tobytes(), "image/jpeg")},
             data={"expected_plate": "GJ01AB1234", "stage": "first_mile"},
+            headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
@@ -135,12 +142,26 @@ def test_fps_delivery_routes_to_manual_review_or_retake():
             "/verify",
             files={"image": ("fps.jpg", encoded.tobytes(), "image/jpeg")},
             data={"expected_plate": "", "stage": "last_mile"},
+            headers=AUTH_HEADERS,
         )
         assert resp.status_code == 200
         data = resp.json()
         # For FPS last-mile with no expected plate, system should route to manual_review or retake
         assert data["decision"] in ("manual_review", "retake")
         assert data["success"] is True
+
+
+def test_reject_unauthorized_when_api_key_set():
+    """Verify that requests without valid Authorization header are rejected with 401."""
+    if not API_KEY:
+        return
+    with TestClient(app) as tc:
+        resp = tc.post(
+            "/verify",
+            files={"image": ("sample.txt", b"not an image", "text/plain")},
+            data={"expected_plate": "GJ01AB1234"},
+        )
+        assert resp.status_code == 401
 
 
 if __name__ == "__main__":
@@ -151,6 +172,8 @@ if __name__ == "__main__":
     print("+ test_reject_unsupported_mime passed")
     test_reject_empty_file()
     print("+ test_reject_empty_file passed")
+    test_reject_unauthorized_when_api_key_set()
+    print("+ test_reject_unauthorized_when_api_key_set passed")
     test_plate_verification_real_image()
     print("+ test_plate_verification_real_image passed")
     test_plate_verification_no_expected_plate()

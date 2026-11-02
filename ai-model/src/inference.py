@@ -92,6 +92,37 @@ def resolve_model_path() -> Path:
     )
 
 
+
+
+def resolve_plate_model_path() -> Path:
+    """Resolve the separately trained number-plate detector."""
+    configured = os.environ.get("PLATE_MODEL_PATH", "").strip()
+
+    candidates = []
+    if configured:
+        candidates.append(Path(configured).expanduser())
+
+    candidates.append(
+        AI_MODEL_DIR
+        / "runs"
+        / "plate_detection"
+        / "rtx3050_img512_b2"
+        / "weights"
+        / "best.pt"
+    )
+
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+
+    checked = "\\n".join(str(p) for p in candidates)
+    raise FileNotFoundError(
+        "Dedicated number-plate model not found. "
+        "Set PLATE_MODEL_PATH or place best.pt at the default path. "
+        f"Checked:\\n{checked}"
+    )
+
+
 # ---------------------------------------------------------------------------
 # Plate text helpers
 # ---------------------------------------------------------------------------
@@ -278,76 +309,282 @@ def extract_plate_candidates_from_vehicle(vehicle_crop: np.ndarray, max_candidat
 # ---------------------------------------------------------------------------
 # Stage 3: OCR on plate crop
 # ---------------------------------------------------------------------------
+
 def run_plate_ocr(crop: np.ndarray) -> Tuple[str, List, str]:
     """
-    Runs OCR on a plate crop using multiple PSM modes.
-    Returns (best_text, candidates_list, method_name).
+    Recognizes Indian vehicle registration plates using multiple
+    preprocessing variants and PSM modes.
+
+    Selects candidates using plate-format validation and agreement
+    across distinct preprocessing methods.
+
+    Returns:
+        (best_text, candidates, method_name)
+
+    Tesseract confidence is not used as a decision threshold.
     """
+
     if crop is None or crop.size == 0:
         return "", [], "none"
 
-    h, w = crop.shape[:2]
-
-    # Upscale small crops for better OCR
-    scale = 1.0
-    if w < 200:
-        scale = max(2.0, 200.0 / w)
-    elif w < 400:
-        scale = 1.5
-
-    if scale > 1.0:
-        new_w = int(w * scale)
-        new_h = int(h * scale)
-        crop = cv2.resize(crop, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
-
-    # Convert to grayscale and apply preprocessing
-    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop
-
-    # Try multiple preprocessing variants
-    preprocessed_variants = []
-
-    # Variant 1: Otsu threshold
-    _, thresh_otsu = cv2.threshold(gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
-    preprocessed_variants.append(("otsu", thresh_otsu))
-
-    # Variant 2: Adaptive threshold
-    adapt = cv2.adaptiveThreshold(gray, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 11, 2)
-    preprocessed_variants.append(("adaptive", adapt))
-
-    # Variant 3: Inverted Otsu (for dark plates with light text)
-    preprocessed_variants.append(("otsu_inv", cv2.bitwise_not(thresh_otsu)))
-
-    # PSM modes to try
-    psm_modes = [7, 8, 6, 13]  # single line, single word, block, raw
-
-    candidates = []
-    for var_name, img_var in preprocessed_variants:
-        for psm in psm_modes:
-            config = f"--psm {psm} {OCR_CONFIG_BASE}"
-            try:
-                raw = pytesseract.image_to_string(img_var, config=config).strip()
-                text = clean_plate_text(raw)
-                if len(text) >= 4:
-                    score = len(text) / 10.0
-                    if validate_indian_plate(text):
-                        score += 0.5
-                    candidates.append({
-                        "text": text,
-                        "score": round(score, 3),
-                        "method": f"{var_name}_psm{psm}",
-                    })
-            except Exception:
-                pass
-
-    if not candidates:
+    # Convert to grayscale
+    if len(crop.shape) == 3:
+        gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY)
+    elif len(crop.shape) == 2:
+        gray = crop.copy()
+    else:
         return "", [], "none"
 
-    # Sort by score descending, take best
-    candidates.sort(key=lambda c: c["score"], reverse=True)
+    h, w = gray.shape[:2]
+
+    if h < 5 or w < 20:
+        return "", [], "none"
+
+    # Add a white border around the plate
+    border = max(10, min(40, int(h * 0.28)))
+
+    bordered = cv2.copyMakeBorder(
+        gray,
+        border, border, border, border,
+        cv2.BORDER_CONSTANT,
+        value=255,
+    )
+
+    # Enlarge the plate for character recognition
+    scale = max(2.0, min(3.0, 650.0 / max(w, 1)))
+
+    large = cv2.resize(
+        bordered,
+        None,
+        fx=scale,
+        fy=scale,
+        interpolation=cv2.INTER_CUBIC,
+    )
+
+    # Contrast enhancement
+    clahe = cv2.createCLAHE(
+        clipLimit=2.0,
+        tileGridSize=(8, 8),
+    ).apply(large)
+
+    # Preprocessing variants
+    otsu = cv2.threshold(
+        clahe,
+        0,
+        255,
+        cv2.THRESH_BINARY + cv2.THRESH_OTSU,
+    )[1]
+
+    adaptive = cv2.adaptiveThreshold(
+        large,
+        255,
+        cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+        cv2.THRESH_BINARY,
+        31,
+        11,
+    )
+
+    variants = [
+        ("clahe", clahe),
+        ("otsu", otsu),
+        ("adaptive", adaptive),
+        ("inverted", cv2.bitwise_not(otsu)),
+    ]
+
+    config_base = (
+        "--oem 3 "
+        "-c tessedit_char_whitelist="
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+    )
+
+    # Group identical readings across preprocessing methods
+    grouped = {}
+
+    for variant_name, processed in variants:
+        for psm in (6, 7):
+            config = f"{config_base} --psm {psm}"
+
+            try:
+                raw = pytesseract.image_to_string(
+                    processed,
+                    config=config,
+                )
+            except pytesseract.TesseractError:
+                continue
+
+            text = clean_plate_text(raw)
+
+            if len(text) < 6:
+                continue
+
+            if text not in grouped:
+                grouped[text] = {
+                    "text": text,
+                    "variant_names": set(),
+                    "psm_modes": set(),
+                    "methods": [],
+                }
+
+            grouped[text]["variant_names"].add(variant_name)
+            grouped[text]["psm_modes"].add(psm)
+            grouped[text]["methods"].append(
+                f"{variant_name}_psm{psm}"
+            )
+
+    if not grouped:
+        return "", [], "none"
+
+    candidates = []
+
+    for entry in grouped.values():
+        valid = validate_indian_plate(entry["text"])
+        variant_votes = len(entry["variant_names"])
+        psm_votes = len(entry["psm_modes"])
+
+        # This is a ranking score, NOT an OCR probability.
+        score = (
+            (100 if valid else 0)
+            + variant_votes * 10
+            + psm_votes
+        )
+
+        candidates.append({
+            "text": entry["text"],
+            "score": score,
+            "valid_format": valid,
+            "variant_votes": variant_votes,
+            "psm_votes": psm_votes,
+            "methods": entry["methods"],
+            "method": "+".join(entry["methods"]),
+        })
+
+    # Valid Indian format first, then agreement across variants
+    candidates.sort(
+        key=lambda c: (
+            c["valid_format"],
+            c["variant_votes"],
+            c["psm_votes"],
+        ),
+        reverse=True,
+    )
+
     best = candidates[0]
 
     return best["text"], candidates, best["method"]
 
+# ---------------------------------------------------------------------------
+# Stage 4: FPS Board / Banner OCR Scan
+# ---------------------------------------------------------------------------
+FPS_BANNER_KEYWORDS = [
+    "FAIR PRICE",
+    "FPS",
+    "PDS",
+    "RATION",
+    "GSCSCL",
+    "GUJARAT",
+    "FOOD",
+    "CIVIL SUPPLIES",
+    "PANDIT DEENDAYAL",
+    "GRAIN",
+    "ANNA",
+    "SHOP",
+    "DUKAN",
+    "VAJBI",
+    "VAAJBI",
+    "PRADHAN MANTRI",
+    "DEPARTMENT",
+]
+
+
+def scan_fps_banner(image: np.ndarray) -> Dict[str, Any]:
+    """
+    Scans candidate banner/board regions of the photograph for Fair Price Shop (FPS)
+    signage text and keywords using Tesseract OCR.
+    """
+    if image is None or image.size == 0:
+        return {
+            "supported": True,
+            "detected": False,
+            "text": "",
+            "keywords_found": [],
+            "regions_scanned": 0,
+        }
+
+    h, w = image.shape[:2]
+    regions = []
+
+    # Region 1: Upper 55% of image (storefront banner / signboard)
+    if h >= 80:
+        regions.append(("upper_banner", image[0 : int(h * 0.55), :]))
+
+    # Region 2: Lower 45% of image (desk, counter, or roadside board)
+    if h >= 80:
+        regions.append(("lower_sign", image[int(h * 0.55) : h, :]))
+
+    if not regions:
+        regions.append(("full_image", image))
+
+    all_found_keywords = set()
+    collected_texts = []
+
+    for name, region in regions:
+        if region is None or region.size == 0:
+            continue
+
+        gray = (
+            cv2.cvtColor(region, cv2.COLOR_BGR2GRAY)
+            if len(region.shape) == 3
+            else region.copy()
+        )
+
+        rh, rw = gray.shape[:2]
+        if rw < 600 and rw > 0:
+            scale = min(2.0, 600.0 / rw)
+            gray = cv2.resize(
+                gray, None, fx=scale, fy=scale, interpolation=cv2.INTER_CUBIC
+            )
+
+        thresh = cv2.threshold(
+            gray, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU
+        )[1]
+
+        raw = ""
+        for psm in (11, 6):
+            try:
+                raw = pytesseract.image_to_string(
+                    thresh, config=f"--psm {psm} --oem 3"
+                ).strip()
+                if raw:
+                    break
+            except Exception:
+                continue
+
+        if not raw:
+            try:
+                raw = pytesseract.image_to_string(
+                    gray, config="--psm 6 --oem 3"
+                ).strip()
+            except Exception:
+                raw = ""
+
+        if raw:
+            cleaned = " ".join(raw.split())
+            collected_texts.append(cleaned)
+            upper_raw = cleaned.upper()
+            for kw in FPS_BANNER_KEYWORDS:
+                if kw in upper_raw:
+                    all_found_keywords.add(kw)
+
+    combined_text = " | ".join(collected_texts).strip()
+    detected = len(all_found_keywords) > 0
+
+    return {
+        "supported": True,
+        "detected": detected,
+        "text": combined_text[:300] if combined_text else "",
+        "keywords_found": sorted(list(all_found_keywords)),
+        "regions_scanned": len(regions),
+    }
 
 # ---------------------------------------------------------------------------
 # Inference Engine
@@ -367,14 +604,23 @@ class GrainShieldInferenceEngine:
         self,
         model_path: Optional[Path] = None,
         device: str = "cpu",
+        plate_model_path: Optional[Path] = None,
     ):
         self.model_path = model_path or resolve_model_path()
+        self.plate_model_path = plate_model_path or resolve_plate_model_path()
         self.device = device
         self.tesseract_cmd = configure_tesseract()
 
         print(f"[inference] Loading vehicle detection model: {self.model_path}")
         self.vehicle_model = YOLO(str(self.model_path))
-        print(f"[inference] Model loaded. Tesseract: {self.tesseract_cmd}")
+
+        print(f"[inference] Loading plate detection model: {self.plate_model_path}")
+        self.plate_model = YOLO(str(self.plate_model_path))
+
+        print(
+            f"[inference] Both models loaded. "
+            f"Device: {self.device}. Tesseract: {self.tesseract_cmd}"
+        )
 
     def analyze_image(self, image_bytes, expected_plate=None, stage=None):
         # Step 1: Decode image
@@ -413,47 +659,127 @@ class GrainShieldInferenceEngine:
             vehicles.sort(key=lambda v: v["confidence"], reverse=True)
             primary_vehicle_type = vehicles[0]["vehicle_type"]
 
-        # Step 3: Two-stage plate extraction
+        # Step 3: Dedicated number-plate detection
         best_plate_text = ""
-        best_plate_conf = 0.0
+        best_plate_conf = 0.0  # Plate detector confidence, NOT OCR confidence
+        best_vehicle_conf = vehicles[0]["confidence"] if vehicles else 0.0
         best_method = "none"
         best_crop_box = None
         all_candidates = []
+        plate_detections = []
         plate_candidates_found = 0
+        best_ocr_variant_votes = 0
+        best_ocr_psm_votes = 0
+        best_selection_rank = None
 
-        for v in vehicles:
-            vx1, vy1, vx2, vy2 = v["box"]
-            vx1 = max(0, vx1); vy1 = max(0, vy1)
-            vx2 = min(width, vx2); vy2 = min(height, vy2)
-            vehicle_crop = image[vy1:vy2, vx1:vx2]
+        # Detect plates in the full image, then associate each detection
+        # with a detected vehicle to reject unrelated background regions.
+        if vehicles:
+            plate_results = self.plate_model.predict(
+                source=image,
+                conf=0.25,
+                imgsz=512,
+                device=self.device,
+                verbose=False,
+            )[0]
 
-            if vehicle_crop.size == 0:
-                continue
+            if plate_results.boxes is not None:
+                for box in plate_results.boxes:
+                    class_id = int(box.cls[0])
+                    if class_id != 0:
+                        continue
 
-            # Stage 2: find plate sub-regions in vehicle crop
-            plate_crops = extract_plate_candidates_from_vehicle(vehicle_crop, max_candidates=3)
-            plate_candidates_found += len(plate_crops)
+                    detector_conf = float(box.conf[0])
+                    x1, y1, x2, y2 = [
+                        int(v) for v in box.xyxy[0].tolist()
+                    ]
 
-            # Also try the bottom third of the vehicle crop as a fallback
-            if not plate_crops:
-                vh = vehicle_crop.shape[0]
-                bottom_third = vehicle_crop[int(vh * 0.55):, :]
-                if bottom_third.size > 0:
-                    plate_crops = [bottom_third]
+                    x1 = max(0, min(x1, width - 1))
+                    y1 = max(0, min(y1, height - 1))
+                    x2 = max(0, min(x2, width))
+                    y2 = max(0, min(y2, height))
 
-            for plate_crop in plate_crops:
-                text, cands, method = run_plate_ocr(plate_crop)
-                if cands:
-                    all_candidates.extend(cands)
-                if text and not best_plate_text:
-                    best_plate_text = text
-                    best_plate_conf = v["confidence"]
-                    best_method = method
-                    best_crop_box = v["box"]
+                    if x2 <= x1 or y2 <= y1:
+                        continue
 
-        if not best_plate_conf and vehicles:
-            best_plate_conf = vehicles[0]["confidence"]
-            best_crop_box = vehicles[0]["box"]
+                    center_x = (x1 + x2) / 2
+                    center_y = (y1 + y2) / 2
+
+                    # Associate the plate with a vehicle bounding box.
+                    associated_vehicle = None
+
+                    for vehicle in vehicles:
+                        vx1, vy1, vx2, vy2 = vehicle["box"]
+                        pad_x = int((vx2 - vx1) * 0.08)
+                        pad_y = int((vy2 - vy1) * 0.08)
+
+                        if (
+                            vx1 - pad_x <= center_x <= vx2 + pad_x
+                            and vy1 - pad_y <= center_y <= vy2 + pad_y
+                        ):
+                            associated_vehicle = vehicle
+                            break
+
+                    if associated_vehicle is None:
+                        continue
+
+                    plate_crop = image[y1:y2, x1:x2]
+                    if plate_crop.size == 0:
+                        continue
+
+                    plate_box = [x1, y1, x2, y2]
+                    plate_candidates_found += 1
+
+                    plate_detections.append({
+                        "box": plate_box,
+                        "confidence": round(detector_conf, 4),
+                        "vehicle_box": associated_vehicle["box"],
+                    })
+
+                    text, candidates, method = run_plate_ocr(plate_crop)
+
+                    for candidate in candidates:
+                        item = dict(candidate)
+                        item["plate_detector_confidence"] = round(
+                            detector_conf, 4
+                        )
+                        item["plate_box"] = plate_box
+                        all_candidates.append(item)
+
+                    if not text:
+                        continue
+
+                    selected = next(
+                        (c for c in candidates if c["text"] == text),
+                        candidates[0] if candidates else {},
+                    )
+
+                    variant_votes = int(
+                        selected.get("variant_votes", 0)
+                    )
+                    psm_votes = int(selected.get("psm_votes", 0))
+                    format_valid = validate_indian_plate(text)
+
+                    # Ranking score only. This is NOT a probability.
+                    selection_rank = (
+                        int(format_valid),
+                        variant_votes,
+                        psm_votes,
+                        detector_conf,
+                    )
+
+                    if (
+                        best_selection_rank is None
+                        or selection_rank > best_selection_rank
+                    ):
+                        best_selection_rank = selection_rank
+                        best_plate_text = text
+                        best_plate_conf = detector_conf
+                        best_vehicle_conf = associated_vehicle["confidence"]
+                        best_method = method
+                        best_crop_box = plate_box
+                        best_ocr_variant_votes = variant_votes
+                        best_ocr_psm_votes = psm_votes
 
         # Step 4: Plate matching
         normalized_expected = clean_plate_text(expected_plate or "")
@@ -464,21 +790,24 @@ class GrainShieldInferenceEngine:
         plate_valid_format = validate_indian_plate(normalized_detected) if normalized_detected else False
 
         if normalized_expected and normalized_detected:
-            if normalized_expected == normalized_detected:
-                plate_match = True
-                similarity = 1.0
-            else:
-                conf_exp = normalize_confusion(normalized_expected)
-                conf_det = normalize_confusion(normalized_detected)
-                if conf_exp == conf_det:
-                    plate_match = True
-                    similarity = 0.98
-                else:
-                    similarity = similarity_ratio(normalized_expected, normalized_detected)
+            similarity = similarity_ratio(
+                normalized_expected,
+                normalized_detected,
+            )
+            # Only an exact registration match qualifies as a match.
+            # Ambiguous OCR characters must not be auto-corrected into PASS.
+            plate_match = normalized_expected == normalized_detected
 
         # Step 5: FPS last-mile checks
         fps_person_detected = person_detected
         is_fps_stage = stage == "last_mile"
+        fps_banner = scan_fps_banner(image) if is_fps_stage else {
+            "supported": True,
+            "detected": False,
+            "text": "",
+            "keywords_found": [],
+            "regions_scanned": 0,
+        }
 
         # Step 6: Decision engine
         decision, reason_code, explanation = self._make_decision(
@@ -491,8 +820,12 @@ class GrainShieldInferenceEngine:
             plate_match=plate_match,
             similarity=similarity,
             best_plate_conf=best_plate_conf,
+            best_ocr_variant_votes=best_ocr_variant_votes,
+            best_ocr_psm_votes=best_ocr_psm_votes,
             stage=stage,
             fps_person_detected=fps_person_detected,
+            fps_banner_detected=fps_banner["detected"],
+            fps_banner_keywords=fps_banner["keywords_found"],
         )
 
         evidence_checks = {
@@ -514,15 +847,27 @@ class GrainShieldInferenceEngine:
                 "boxes": [v["box"] for v in vehicles[:3]],
             },
             "plate_extraction": {
+                "detector": "dedicated_yolo_plate_detector",
                 "candidates_found": plate_candidates_found,
                 "passed": plate_candidates_found > 0,
+                "best_detection_confidence": (
+                    round(best_plate_conf, 4)
+                    if plate_candidates_found else None
+                ),
+                "best_box": best_crop_box,
             },
             "ocr": {
-                "passed": bool(normalized_detected and len(normalized_detected) >= 6),
+                "passed": bool(normalized_detected and plate_valid_format),
                 "detected_text": best_plate_text or None,
                 "normalized": normalized_detected or None,
                 "valid_indian_format": plate_valid_format,
                 "method": best_method,
+                "variant_votes": best_ocr_variant_votes,
+                "psm_votes": best_ocr_psm_votes,
+                "agreement": (
+                    best_ocr_variant_votes >= 2
+
+                ),
                 "candidates_count": len(all_candidates),
                 "top_candidates": [c["text"] for c in sorted(all_candidates, key=lambda x: x["score"], reverse=True)[:3]],
             },
@@ -538,7 +883,10 @@ class GrainShieldInferenceEngine:
                 "is_fps_stage": is_fps_stage,
                 "person_detected": fps_person_detected,
                 "person_count": len(persons),
-                "banner_ocr_supported": False,
+                "banner_ocr_supported": True,
+                "banner_detected": fps_banner["detected"],
+                "banner_text": fps_banner["text"] or None,
+                "banner_keywords": fps_banner["keywords_found"],
             },
             "reason_code": reason_code,
         }
@@ -551,14 +899,19 @@ class GrainShieldInferenceEngine:
             "plateMatch": plate_match,
             "vehicleType": primary_vehicle_type,
             "vehicleCategory": VEHICLE_CATEGORY_MAP.get(primary_vehicle_type, None) if primary_vehicle_type else None,
-            "confidence": round(best_plate_conf, 4) if best_plate_conf else 0.0,
+            "confidence": round(best_vehicle_conf, 4) if best_vehicle_conf else 0.0,
+            "vehicleConfidence": round(best_vehicle_conf, 4) if best_vehicle_conf else 0.0,
+            "plateDetectionConfidence": (
+                round(best_plate_conf, 4) if plate_candidates_found else 0.0
+            ),
             "decision": decision,
             "reasonCode": reason_code,
             "explanation": explanation,
             "processorVersion": self.version,
             "modelVersions": {
                 "vehicle_detector": f"yolov8n-{self.model_path.name}",
-                "plate_extractor": "opencv-contour-v1",
+                "plate_extractor": "dedicated-yolo-plate-v1",
+                "plate_detector": self.plate_model_path.name,
                 "ocr_engine": f"tesseract-{self.tesseract_cmd}",
             },
             "evidenceChecks": evidence_checks,
@@ -567,6 +920,8 @@ class GrainShieldInferenceEngine:
                 "vehicles": vehicles,
                 "persons": persons,
                 "plate_candidates": plate_candidates_found,
+                "plate_detections": plate_detections,
+                "best_plate_box": best_crop_box,
                 "ocr_candidates": sorted(all_candidates, key=lambda x: x["score"], reverse=True)[:5],
                 "stage": stage,
             },
@@ -575,7 +930,10 @@ class GrainShieldInferenceEngine:
 
     def _make_decision(self, quality, vehicle_detected, plate_candidates_found,
                        normalized_detected, normalized_expected, plate_valid_format,
-                       plate_match, similarity, best_plate_conf, stage, fps_person_detected):
+                       plate_match, similarity, best_plate_conf,
+                       best_ocr_variant_votes, best_ocr_psm_votes,
+                       stage, fps_person_detected, fps_banner_detected=False,
+                       fps_banner_keywords=None):
         """
         Structured decision engine with reason codes.
 
@@ -596,13 +954,24 @@ class GrainShieldInferenceEngine:
 
         # --- Last-mile FPS delivery ---
         if stage == "last_mile" and not normalized_expected:
-            # FPS delivery photo - check for person
-            if not fps_person_detected and not vehicle_detected:
-                return "retake", "fps_no_person_no_vehicle", "Please retake: no person or vehicle detected. Photograph the FPS owner at the delivery point."
+            # FPS delivery photo - check for person and banner
+            if not fps_person_detected and not vehicle_detected and not fps_banner_detected:
+                return "retake", "fps_no_person_no_vehicle", (
+                    "Please retake: no person, vehicle, or FPS banner detected. "
+                    "Photograph the FPS owner and shop board at the delivery point."
+                )
+            banner_note = (
+                f"FPS banner detected ({', '.join(fps_banner_keywords)}). "
+                if fps_banner_detected
+                else "No FPS banner detected. "
+            )
+            person_note = (
+                "FPS person detected. "
+                if fps_person_detected
+                else "No FPS person visible. "
+            )
             return "manual_review", "fps_delivery_manual", (
-                "Last-mile FPS delivery photograph. "
-                + ("FPS person detected. " if fps_person_detected else "No FPS person visible. ")
-                + "Automated FPS banner recognition pending - routed to officer review."
+                f"Last-mile FPS delivery photograph. {person_note}{banner_note}Routed to officer review."
             )
 
         # --- Vehicle required but absent ---
@@ -617,11 +986,30 @@ class GrainShieldInferenceEngine:
                 f"Vehicle detected ({normalized_detected or 'plate unreadable'}) but no assigned vehicle registration provided for matching. Routed to manual review."
             )
 
-        # --- Plate extracted and matched ---
-        if plate_match and best_plate_conf >= 0.50 and quality["label"] in ("clear",):
+        # --- Exact plate match without repeatable OCR agreement ---
+        ocr_agreement = (
+            best_ocr_variant_votes >= 2
+
+        )
+
+        if plate_match and not ocr_agreement:
+            return "manual_review", "plate_ocr_low_consensus", (
+                f"Plate text {normalized_detected} matches the assigned registration, "
+                "but OCR agreement is insufficient for automatic approval."
+            )
+
+        # --- Plate extracted and exactly matched ---
+        if (
+            plate_match
+            and plate_valid_format
+            and best_plate_conf >= 0.50
+            and quality["label"] == "clear"
+        ):
             return "pass", "plate_verified", (
-                f"License plate verified: {normalized_detected} matches assigned vehicle {normalized_expected} "
-                f"(detector confidence {best_plate_conf * 100:.1f}%, quality: {quality['label']})."
+                f"License plate {normalized_detected} exactly matches "
+                f"assigned vehicle {normalized_expected} "
+                f"(plate detector confidence {best_plate_conf * 100:.1f}%, "
+                f"quality: {quality['label']})."
             )
 
         # --- Plate format valid but mismatch ---

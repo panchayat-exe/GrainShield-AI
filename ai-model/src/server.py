@@ -28,6 +28,30 @@ from src.inference import GrainShieldInferenceEngine, resolve_model_path
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+# Load the local AI service environment without requiring python-dotenv.
+def _load_service_env():
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.is_file():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        name, value = line.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+
+        if name:
+            os.environ.setdefault(name, value)
+
+
+_load_service_env()
+
 MAX_FILE_SIZE_BYTES = int(os.environ.get("MAX_FILE_SIZE_BYTES", str(10 * 1024 * 1024)))  # 10 MB
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
 API_KEY = os.environ.get("CV_API_KEY", "").strip()
@@ -59,7 +83,28 @@ async def lifespan(app: FastAPI):
     global engine
     model_path = resolve_model_path()
     print(f"[service] Preloading GrainShield model from: {model_path}")
-    engine = GrainShieldInferenceEngine(model_path=model_path, device="cpu")
+    requested_device = os.environ.get("GRAINSHIELD_DEVICE", "auto").strip().lower()
+
+    try:
+        import torch
+        cuda_available = torch.cuda.is_available()
+    except Exception:
+        cuda_available = False
+
+    if requested_device in {"", "auto"}:
+        inference_device = "cuda:0" if cuda_available else "cpu"
+    elif requested_device.startswith("cuda") and not cuda_available:
+        raise RuntimeError(
+            "CUDA was requested but is unavailable. Check the PyTorch CUDA installation."
+        )
+    else:
+        inference_device = requested_device
+
+    print(f"[service] Selected inference device: {inference_device}")
+    engine = GrainShieldInferenceEngine(
+        model_path=model_path,
+        device=inference_device,
+    )
     print(f"[service] Model loaded successfully. Tesseract: {engine.tesseract_cmd}")
     yield
     print("[service] Shutting down inference service.")

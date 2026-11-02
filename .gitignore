@@ -78,3 +78,7 @@ ai-model/validation/validation_results.json
 ai-model/.pytest_cache/
 ai-model/benchmark_results.csv
 ai-model/test_images/benchmark_results.csv
+
+*.bak
+ai-model/debug_*/
+
