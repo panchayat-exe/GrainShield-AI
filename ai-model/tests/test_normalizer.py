@@ -1,12 +1,15 @@
 """
-Unit tests for plate normalization and Indian plate format validation.
-Run with: py -3.12 -m pytest ai-model/tests/ -v
+Unit tests for plate normalisation and Indian plate format validation.
+Run with: pytest ai-model/tests/ -v
+
+Imports from normalizer.py (no ML dependencies required).
 """
 import sys
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.inference import (
+from src.normalizer import (
     clean_plate_text,
     normalize_confusion,
     validate_indian_plate,

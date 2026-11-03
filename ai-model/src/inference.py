@@ -1,6 +1,10 @@
 """
 GrainShield AI — Computer Vision Inference Engine
 Two-stage pipeline: vehicle detection -> plate region extraction -> OCR -> decision.
+
+Heavy ML dependencies (torch, cv2, ultralytics, pytesseract) are imported lazily
+inside functions that need them. Pure utility functions can be imported in unit
+tests without the full ML stack.
 """
 
 from __future__ import annotations
@@ -12,10 +16,19 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
-import cv2
-import numpy as np
-import pytesseract
-from ultralytics import YOLO
+# ---------------------------------------------------------------------------
+# Re-export pure-Python utilities from normalizer module (no ML deps).
+# Keeps the public API stable for existing callers.
+# ---------------------------------------------------------------------------
+from src.normalizer import (  # noqa: F401
+    CONFUSION_MAP,
+    INDIAN_PLATE_PATTERN,
+    clean_plate_text,
+    levenshtein_distance,
+    normalize_confusion,
+    similarity_ratio,
+    validate_indian_plate,
+)
 
 # ---------------------------------------------------------------------------
 # Path Configuration & Defaults
@@ -54,31 +67,37 @@ OCR_CONFIG_BASE = (
     "-c tessedit_char_whitelist=ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 )
 
-CONFUSION_MAP = {"O": "0", "I": "1", "Z": "2", "S": "5", "B": "8"}
 
-# Indian plate: 2-letter state, 2-digit district, 1-3 letter series, 1-4 digit number
-# e.g. GJ05AB1234, MH12DE1433
-INDIAN_PLATE_PATTERN = re.compile(
-    r"^[A-Z]{2}\d{2}[A-Z]{1,3}\d{1,4}$", re.IGNORECASE
-)
 
+# ---------------------------------------------------------------------------
+# Lazy ML imports — only loaded when the inference service is initialised.
+# This allows pure utility functions to be tested without torch / cv2.
+# ---------------------------------------------------------------------------
+def _import_ml_deps() -> tuple:
+    """Imports heavy ML dependencies on demand."""
+    import cv2  # noqa: PLC0415
+    import numpy as np  # noqa: PLC0415
+    import pytesseract as _pytesseract  # noqa: PLC0415
+    from ultralytics import YOLO  # noqa: PLC0415
+    return cv2, np, _pytesseract, YOLO
 
 # ---------------------------------------------------------------------------
 # Configuration helpers
 # ---------------------------------------------------------------------------
 def configure_tesseract() -> str:
     """Finds and configures the Tesseract binary path."""
+    import pytesseract as _pytesseract  # noqa: PLC0415
     for path in DEFAULT_TESSERACT_PATHS:
         if path and str(path) != "." and path.is_file():
-            pytesseract.pytesseract.tesseract_cmd = str(path)
+            _pytesseract.pytesseract.tesseract_cmd = str(path)
             return str(path)
 
     cmd = shutil.which("tesseract")
     if cmd:
-        pytesseract.pytesseract.tesseract_cmd = cmd
+        _pytesseract.pytesseract.tesseract_cmd = cmd
         return cmd
 
-    return pytesseract.pytesseract.tesseract_cmd
+    return _pytesseract.pytesseract.tesseract_cmd
 
 
 def resolve_model_path() -> Path:
@@ -129,74 +148,6 @@ def resolve_plate_model_path() -> Path:
         f"Checked:\\n{checked}"
     )
 
-
-# ---------------------------------------------------------------------------
-# Plate text helpers
-# ---------------------------------------------------------------------------
-def clean_plate_text(raw: str) -> str:
-    """Normalizes license plate string: uppercase, letters and digits only."""
-    return re.sub(r"[^A-Z0-9]", "", (raw or "").upper())
-
-
-def normalize_confusion(text: str) -> str:
-    """
-    Position-aware confusion normalization for Indian plates (GJ05AB1234).
-    Structure: [STATE:2][DISTRICT:2][SERIES:1-3][NUMBER:1-4]
-    Only replaces in digit-expected positions (district=2-3, number=last 1-4).
-    Letter positions (state code, series letters) are left unchanged.
-    """
-    cleaned = clean_plate_text(text)
-    if not cleaned:
-        return cleaned
-
-    # Apply confusion mapping only to the district digits (pos 2-3)
-    # and the trailing number portion. Letters in alpha positions untouched.
-    # Heuristic: if we have >= 6 chars, treat pos 2-3 as district digits.
-    result = list(cleaned)
-    for i, c in enumerate(result):
-        if i in (2, 3):
-            # District positions: expect digits; O->0, I->1, Z->2 etc.
-            result[i] = CONFUSION_MAP.get(c, c)
-        elif i >= 6:
-            # Number suffix: expect digits
-            result[i] = CONFUSION_MAP.get(c, c)
-        # Positions 0-1 (state code) and 4-5 (series letters): leave as-is
-    return "".join(result)
-
-
-def levenshtein_distance(s1: str, s2: str) -> int:
-    """Computes Levenshtein edit distance between two strings."""
-    if len(s1) < len(s2):
-        return levenshtein_distance(s2, s1)
-    if len(s2) == 0:
-        return len(s1)
-
-    previous_row = list(range(len(s2) + 1))
-    for i, c1 in enumerate(s1):
-        current_row = [i + 1]
-        for j, c2 in enumerate(s2):
-            insertions = previous_row[j + 1] + 1
-            deletions = current_row[j] + 1
-            substitutions = previous_row[j] + (c1 != c2)
-            current_row.append(min(insertions, deletions, substitutions))
-        previous_row = current_row
-    return previous_row[-1]
-
-
-def similarity_ratio(s1: str, s2: str) -> float:
-    """Computes a normalized similarity score between 0.0 and 1.0."""
-    max_len = max(len(s1), len(s2))
-    if max_len == 0:
-        return 1.0
-    dist = levenshtein_distance(s1, s2)
-    return max(0.0, 1.0 - (dist / max_len))
-
-
-def validate_indian_plate(plate: str) -> bool:
-    """Returns True if the string matches the Indian number plate format."""
-    if not plate:
-        return False
-    return bool(INDIAN_PLATE_PATTERN.match(plate))
 
 
 # ---------------------------------------------------------------------------
@@ -618,11 +569,17 @@ class GrainShieldInferenceEngine:
         self.device = device
         self.tesseract_cmd = configure_tesseract()
 
+        # Lazy-import heavy ML deps here so pure utilities are testable without them
+        _cv2, _np, _pytesseract, _YOLO = _import_ml_deps()
+        self._cv2 = _cv2
+        self._np = _np
+        self._pytesseract = _pytesseract
+
         print(f"[inference] Loading vehicle detection model: {self.model_path}")
-        self.vehicle_model = YOLO(str(self.model_path))
+        self.vehicle_model = _YOLO(str(self.model_path))
 
         print(f"[inference] Loading plate detection model: {self.plate_model_path}")
-        self.plate_model = YOLO(str(self.plate_model_path))
+        self.plate_model = _YOLO(str(self.plate_model_path))
 
         print(
             f"[inference] Both models loaded. "

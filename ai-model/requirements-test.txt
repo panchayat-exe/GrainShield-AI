@@ -1,0 +1,3 @@
+# Lightweight dependencies for running unit tests in CI (no torch/ultralytics/cv2 required).
+# The full requirements.txt is only needed when running the inference server.
+pytest>=8.0.0

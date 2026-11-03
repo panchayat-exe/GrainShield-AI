@@ -20,7 +20,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -41,6 +41,9 @@ jobs:
 
       - name: Build
         run: npm run build
+        env:
+          VITE_SUPABASE_URL: ''
+          VITE_SUPABASE_PUBLISHABLE_KEY: ''
 
   # ── Admin Dashboard ───────────────────────────────────────────────────────
   admin:
@@ -55,7 +58,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: apps/admin/package-lock.json
 
@@ -90,7 +93,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: '24'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: mobile/package-lock.json
 
@@ -121,15 +124,16 @@ jobs:
         with:
           python-version: '3.12'
           cache: 'pip'
-          cache-dependency-path: ai-model/requirements.txt
+          # Cache key based on test requirements only (avoids torch cache invalidation)
+          cache-dependency-path: ai-model/requirements-test.txt
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt pytest
+      - name: Install test dependencies
+        # Only install lightweight packages needed for unit tests.
+        # Heavy ML deps (torch, ultralytics, cv2) are NOT installed in CI —
+        # they are lazy-imported inside inference functions and not needed for tests.
+        run: pip install -r requirements-test.txt
 
-      - name: Install Tesseract
-        run: sudo apt-get update && sudo apt-get install -y tesseract-ocr
-
-      - name: Syntax check
+      - name: Syntax check (all Python sources)
         run: |
           python -c "import ast, pathlib; [ast.parse(f.read_text(encoding='utf-8-sig')) for f in pathlib.Path('src').rglob('*.py')]"
           echo "Syntax OK"
