@@ -86,7 +86,7 @@ function Detail() {
   const { trip, evidence, verifications, reviews, locations, error, adminUser } = loaderData;
   const router = useRouter();
 
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [imageUrls, setImageUrls] = useState<Record<string, string>>({});
   const [actionLoading, setActionLoading] = useState(false);
   const [actionMessage, setActionMessage] = useState<{
     type: "success" | "error";
@@ -105,22 +105,29 @@ function Detail() {
   const activeReview =
     reviews?.find((r: { status: string }) => r.status !== "resolved") ?? reviews?.[0] ?? null;
 
-  // Load signed URL for private evidence photo
+  // Load signed URLs for ALL evidence photos
   useEffect(() => {
     let cancelled = false;
-    async function loadSignedUrl() {
-      if (latestEvidence?.storage_path) {
-        const res = await getEvidenceSignedUrl(latestEvidence.storage_path, 600);
-        if (!cancelled && res.url) {
-          setImageUrl(res.url);
+    async function loadAllSignedUrls() {
+      if (!evidence?.length) return;
+      const entries = await Promise.all(
+        evidence.map(async (ev) => {
+          if (!ev.storage_path) return [ev.id, null] as const;
+          const res = await getEvidenceSignedUrl(ev.storage_path, 600);
+          return [ev.id, res.url ?? null] as const;
+        }),
+      );
+      if (!cancelled) {
+        const urlMap: Record<string, string> = {};
+        for (const [id, url] of entries) {
+          if (id && url) urlMap[id] = url;
         }
+        setImageUrls(urlMap);
       }
     }
-    loadSignedUrl();
-    return () => {
-      cancelled = true;
-    };
-  }, [latestEvidence?.storage_path]);
+    void loadAllSignedUrls();
+    return () => { cancelled = true; };
+  }, [evidence]);
 
   const handleConfirmReview = async () => {
     if (!selectedDecision) return;
@@ -333,39 +340,56 @@ function Detail() {
         {/* Left Column: Uploaded Image & AI Findings */}
         <Card title="Transport Evidence & Computer Vision Findings" className="lg:col-span-2">
           <div className="grid gap-5 md:grid-cols-[280px_1fr]">
-            <div className="space-y-3">
-              <div className="relative overflow-hidden rounded-md border border-border bg-black/5">
-                <img
-                  src={imageUrl || truckPlaceholder}
-                  alt="Transport evidence photograph"
-                  width={1024}
-                  height={768}
-                  className="aspect-[4/5] w-full rounded-md object-cover transition-transform hover:scale-105"
-                />
-              </div>
-              <button
-                type="button"
-                onClick={() => {
-                  if (imageUrl) window.open(imageUrl, "_blank");
-                }}
-                className={`${btn.outline} w-full justify-center text-xs`}
-              >
-                <Maximize2 className="h-3.5 w-3.5" />
-                View Full Resolution
-              </button>
-              {latestEvidence && (
-                <div className="rounded-md bg-muted/40 p-2.5 text-xs text-muted-foreground space-y-1">
-                  <div>
-                    <b>File:</b> {latestEvidence.original_filename}
-                  </div>
-                  <div>
-                    <b>Size:</b> {(latestEvidence.file_size / 1024).toFixed(1)} KB
-                  </div>
-                  <div>
-                    <b>Uploaded:</b>{" "}
-                    {new Date(latestEvidence.uploaded_at).toLocaleTimeString("en-IN")}
-                  </div>
+            <div className="space-y-4">
+              {(evidence ?? []).length === 0 ? (
+                <div className="rounded-md border border-border bg-muted/30 p-6 text-center text-sm text-muted-foreground">
+                  No evidence photos uploaded for this trip.
                 </div>
+              ) : (
+                (evidence ?? []).map((ev, idx) => {
+                  const evUrl = imageUrls[ev.id] ?? null;
+                  const evVer = verifications?.find((v) => v.evidence_id === ev.id) ?? (idx === 0 ? latestVerification : null);
+                  return (
+                    <div key={ev.id} className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+                      <div className="flex items-center justify-between px-3 py-2 bg-muted/40 border-b border-border text-xs text-muted-foreground">
+                        <span className="font-medium">Photo {idx + 1} of {(evidence ?? []).length}</span>
+                        {evVer && (
+                          <span className={`rounded px-2 py-0.5 font-semibold ${
+                            evVer.decision === "pass" ? "bg-success-soft text-success" :
+                            evVer.decision === "fail" ? "bg-danger-soft text-destructive" :
+                            "bg-warning-soft text-warning"
+                          }`}>
+                            AI: {(evVer.decision ?? "pending").toUpperCase()}
+                          </span>
+                        )}
+                      </div>
+                      <div className="relative overflow-hidden bg-black/5">
+                        <img
+                          src={evUrl ?? truckPlaceholder}
+                          alt={`Evidence photo ${idx + 1}`}
+                          width={1024}
+                          height={768}
+                          className="aspect-[4/3] w-full object-cover transition-transform hover:scale-105"
+                        />
+                      </div>
+                      <div className="p-2.5 space-y-1 text-xs text-muted-foreground">
+                        {ev.original_filename && <div><b>File:</b> {ev.original_filename}</div>}
+                        {ev.file_size && <div><b>Size:</b> {(ev.file_size / 1024).toFixed(1)} KB</div>}
+                        <div><b>Uploaded:</b> {new Date(ev.uploaded_at).toLocaleTimeString("en-IN")}</div>
+                        {evUrl && (
+                          <button
+                            type="button"
+                            onClick={() => window.open(evUrl, "_blank")}
+                            className={`${btn.outline} mt-1 w-full justify-center text-xs`}
+                          >
+                            <Maximize2 className="h-3.5 w-3.5" />
+                            View Full Resolution
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  );
+                })
               )}
             </div>
 

@@ -8,6 +8,7 @@ import { getEvidenceForTrip, getSignedUrl } from "@/lib/services/evidence";
 import { getVerificationsForTrip } from "@/lib/services/verification";
 import { getAuditLogsForTrip, auditActionLabel, formatTimestamp } from "@/lib/services/audit";
 import type { Trip, TripEvidence, VerificationResult, AuditLog } from "@/lib/supabase/types";
+import { supabase } from "@/lib/supabase/client";
 
 export const Route = createFileRoute("/trip")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -96,6 +97,47 @@ function Trip() {
       setLoading(false);
     })();
   }, [tripId, user]);
+
+  // Realtime + polling: refresh trip status when trip is in an active/processing state
+  useEffect(() => {
+    const activeStatuses = ["submitted", "processing", "manual_review"];
+    if (!tripId || !user || !trip) return;
+    if (!activeStatuses.includes(trip.status)) return;
+
+    const pollId = setInterval(async () => {
+      const [updated, verArr, logs] = await Promise.all([
+        getTripById(tripId),
+        getVerificationsForTrip(tripId),
+        getAuditLogsForTrip(tripId),
+      ]);
+      if (updated) setTrip(updated);
+      setVerifications(verArr);
+      setAuditLogs(logs);
+    }, 30_000);
+
+    const channel = supabase
+      .channel(`trip-status-${tripId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "trips", filter: `id=eq.${tripId}` },
+        async (payload) => {
+          const updated = payload.new as Trip;
+          if (updated) setTrip(updated);
+          const [verArr, logs] = await Promise.all([
+            getVerificationsForTrip(tripId),
+            getAuditLogsForTrip(tripId),
+          ]);
+          setVerifications(verArr);
+          setAuditLogs(logs);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(pollId);
+      void supabase.removeChannel(channel);
+    };
+  }, [tripId, user, trip?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) {
     return (

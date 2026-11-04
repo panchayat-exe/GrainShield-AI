@@ -156,8 +156,10 @@ function LeafletMap({
     if (!mapRef.current) return;
     if (mapInstanceRef.current || mapRef.current?.dataset["leafletId"]) return;
     const currentRef = mapRef.current;
+    let cancelled = false;
 
     import("leaflet").then((L) => {
+      if (cancelled || !currentRef || currentRef.dataset["leafletId"]) return;
       delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
       L.Icon.Default.mergeOptions({
         iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
@@ -190,6 +192,7 @@ function LeafletMap({
     });
 
     return () => {
+      cancelled = true;
       if (mapInstanceRef.current?.map) {
         mapInstanceRef.current.map.remove();
         mapInstanceRef.current = null;

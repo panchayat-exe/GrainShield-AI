@@ -286,6 +286,7 @@ export async function assignReviewer(reviewId: string, reviewerId: string) {
   return { error: error?.message ?? null };
 }
 
+/** @deprecated Use resolveManualReview() — this direct update bypasses state machine and audit trail. Not called in UI. */
 export async function resolveReview(
   reviewId: string,
   decision: "resolved" | "escalated",
