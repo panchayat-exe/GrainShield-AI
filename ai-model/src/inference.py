@@ -1,4 +1,4 @@
-"""
+﻿"""
 GrainShield AI — Computer Vision Inference Engine
 Two-stage pipeline: vehicle detection -> plate region extraction -> OCR -> decision.
 
@@ -24,6 +24,7 @@ from src.normalizer import (  # noqa: F401
     CONFUSION_MAP,
     INDIAN_PLATE_PATTERN,
     clean_plate_text,
+    evaluate_plate_decision,
     levenshtein_distance,
     normalize_confusion,
     similarity_ratio,
@@ -70,16 +71,20 @@ OCR_CONFIG_BASE = (
 
 
 # ---------------------------------------------------------------------------
-# Lazy ML imports — only loaded when the inference service is initialised.
-# This allows pure utility functions to be tested without torch / cv2.
+# Optional ML imports — guarded so pure utility tests can run without them.
+# In inference/runtime environments with dependencies installed, module-level
+# cv2, np, pytesseract, YOLO are available throughout.
 # ---------------------------------------------------------------------------
-def _import_ml_deps() -> tuple:
-    """Imports heavy ML dependencies on demand."""
-    import cv2  # noqa: PLC0415
-    import numpy as np  # noqa: PLC0415
-    import pytesseract as _pytesseract  # noqa: PLC0415
-    from ultralytics import YOLO  # noqa: PLC0415
-    return cv2, np, _pytesseract, YOLO
+try:
+    import cv2
+    import numpy as np
+    import pytesseract
+    from ultralytics import YOLO
+except ImportError:
+    cv2 = None  # type: ignore
+    np = None  # type: ignore
+    pytesseract = None  # type: ignore
+    YOLO = None  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Configuration helpers
@@ -569,17 +574,14 @@ class GrainShieldInferenceEngine:
         self.device = device
         self.tesseract_cmd = configure_tesseract()
 
-        # Lazy-import heavy ML deps here so pure utilities are testable without them
-        _cv2, _np, _pytesseract, _YOLO = _import_ml_deps()
-        self._cv2 = _cv2
-        self._np = _np
-        self._pytesseract = _pytesseract
+        if YOLO is None:
+            raise RuntimeError("Ultralytics/PyTorch is not installed in this environment.")
 
         print(f"[inference] Loading vehicle detection model: {self.model_path}")
-        self.vehicle_model = _YOLO(str(self.model_path))
+        self.vehicle_model = YOLO(str(self.model_path))
 
         print(f"[inference] Loading plate detection model: {self.plate_model_path}")
-        self.plate_model = _YOLO(str(self.plate_model_path))
+        self.plate_model = YOLO(str(self.plate_model_path))
 
         print(
             f"[inference] Both models loaded. "
@@ -950,46 +952,6 @@ class GrainShieldInferenceEngine:
                 f"Vehicle detected ({normalized_detected or 'plate unreadable'}) but no assigned vehicle registration provided for matching. Routed to manual review."
             )
 
-        # --- Exact plate match without repeatable OCR agreement ---
-        ocr_agreement = (
-            best_ocr_variant_votes >= 2
-
-        )
-
-        if plate_match and not ocr_agreement:
-            return "manual_review", "plate_ocr_low_consensus", (
-                f"Plate text {normalized_detected} matches the assigned registration, "
-                "but OCR agreement is insufficient for automatic approval."
-            )
-
-        # --- Plate extracted and exactly matched ---
-        if (
-            plate_match
-            and plate_valid_format
-            and best_plate_conf >= 0.50
-            and quality["label"] == "clear"
-        ):
-            return "pass", "plate_verified", (
-                f"License plate {normalized_detected} exactly matches "
-                f"assigned vehicle {normalized_expected} "
-                f"(plate detector confidence {best_plate_conf * 100:.1f}%, "
-                f"quality: {quality['label']})."
-            )
-
-        # --- Plate format valid but mismatch ---
-        if plate_valid_format and normalized_detected and not plate_match and similarity < 0.50:
-            return "fail", "plate_mismatch", (
-                f"Plate mismatch: detected {normalized_detected} does not match assigned vehicle {normalized_expected} "
-                f"(similarity {similarity * 100:.0f}%). This may indicate a wrong vehicle."
-            )
-
-        # --- Plate found, close match (1-2 chars off) ---
-        if normalized_detected and similarity >= 0.70:
-            return "manual_review", "plate_close_match", (
-                f"Close but uncertain plate match: detected {normalized_detected}, expected {normalized_expected} "
-                f"(similarity {similarity * 100:.0f}%). Routed to officer verification."
-            )
-
         # --- Plate extracted but OCR unclear ---
         if plate_candidates_found > 0 and not normalized_detected:
             return "retake", "plate_found_ocr_failed", "Plate region detected but text could not be read. Please retake closer to the vehicle."
@@ -998,12 +960,15 @@ class GrainShieldInferenceEngine:
         if vehicle_detected and plate_candidates_found == 0:
             return "retake", "plate_not_visible", "Vehicle detected but registration plate is not clearly visible. Please retake showing the plate."
 
-        # --- Fallback: manual review ---
-        return "manual_review", "ocr_uncertain", (
-            f"Plate region {'found' if plate_candidates_found > 0 else 'not found'}, "
-            f"OCR result {('\"' + normalized_detected + '\"') if normalized_detected else 'unclear'}. "
-            "Routed to manual review."
+        # --- Delegate to strict plate decision policy engine ---
+        plate_eval = evaluate_plate_decision(
+            expected_plate=normalized_expected,
+            detected_plate=normalized_detected,
+            best_plate_conf=best_plate_conf,
+            quality_label=quality["label"],
+            ocr_variant_votes=best_ocr_variant_votes,
         )
+        return plate_eval["decision"], plate_eval["reason_code"], plate_eval["explanation"]
 
     def _error_result(self, message, decision):
         return {
