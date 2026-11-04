@@ -1,4 +1,4 @@
-﻿/**
+/**
  * GrainShield AI — Computer Vision Verification Worker
  *
  * This Node.js worker:
@@ -433,6 +433,58 @@ async function processVerification(verification) {
         `[worker] Failed to update trip ${trip_id}:`,
         tripUpdateError.message,
       );
+    }
+  }
+
+  // When AI routes to manual_review, create a manual_review_requests row
+  // so officers can see and act on it in the admin dashboard.
+  // Idempotent: check for existing row first to avoid duplicates on retries.
+  if (verStatus === "manual_review") {
+    // Check if a review request already exists for this evidence
+    const { data: existingReview } = await adminClient
+      .from("manual_review_requests")
+      .select("id")
+      .eq("trip_id", trip_id)
+      .eq("evidence_id", evidence_id)
+      .maybeSingle();
+
+    if (!existingReview) {
+      // requested_by must reference auth.users — use the trip owner as requester
+      const { data: tripOwner } = await adminClient
+        .from("trips")
+        .select("created_by")
+        .eq("id", trip_id)
+        .maybeSingle();
+
+      const requestedBy = tripOwner?.created_by ?? null;
+
+      if (requestedBy) {
+        const { error: reviewInsertError } = await adminClient
+          .from("manual_review_requests")
+          .insert({
+            trip_id,
+            evidence_id,
+            requested_by: requestedBy,
+            user_notes: cvResult.explanation
+              ? `AI flagged: ${cvResult.explanation}`
+              : "AI could not automatically verify this trip. Manual officer review required.",
+            status: "pending",
+          });
+
+        if (reviewInsertError) {
+          // Non-fatal: log and continue — trip is still in manual_review status
+          console.warn(
+            `[worker] Could not create manual_review_requests for trip ${trip_id}:`,
+            reviewInsertError.message,
+          );
+        } else {
+          console.log(`[worker] Manual review request created for trip ${trip_id}`);
+        }
+      } else {
+        console.warn(`[worker] Trip ${trip_id} has no created_by — skipping review request insert`);
+      }
+    } else {
+      console.log(`[worker] Manual review request already exists for trip ${trip_id} / evidence ${evidence_id}`);
     }
   }
 

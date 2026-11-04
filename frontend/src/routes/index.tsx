@@ -275,9 +275,9 @@ function Upload() {
               disabled={submitting}
             >
               <option value="">Select Stage</option>
-              <option value="first_mile">First Mile</option>
-              {/* mid_mile: reserved in DB schema for future use; no PS000006 workflow defined */}
-              <option value="last_mile">Last Mile</option>
+              <option value="first_mile">First Mile — FCI Mandi to Godown (CP1 &amp; CP2)</option>
+              {/* mid_mile: reserved in DB schema for future use */}
+              <option value="last_mile">Last Mile — Godown to Fair Price Shop (CP3 &amp; CP4)</option>
             </select>
             {fieldErrors.stage && <p className="mt-1 text-xs text-danger">{fieldErrors.stage}</p>}
           </label>

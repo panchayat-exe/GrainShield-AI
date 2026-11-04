@@ -264,7 +264,7 @@ function Trip() {
                       isPass
                         ? "bg-success text-maroon-foreground"
                         : isManual
-                          ? "bg-maroon text-maroon-foreground"
+                          ? "bg-warning text-white"
                           : "bg-saffron text-saffron-foreground"
                     }`}
                   >
