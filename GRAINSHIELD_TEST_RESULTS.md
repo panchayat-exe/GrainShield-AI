@@ -169,3 +169,43 @@ The following 8-scenario matrix was verified in `ai-worker/test_comprehensive_va
 | `trip.tsx` no realtime polling | Trip status updates require manual refresh or navigate-away. Low priority. |
 | `mid_mile` stage exists in DB | Not used in PS000006; hidden from citizen upload form. |
 | Test records in audit log | 4 override transitions performed by `test_runner_b@grainshield.local` are scripted demonstration records. Physical field evidence was not independently verified. |
+
+---
+
+## 12. Evidence Gallery (Phase 2 — Commit 85fea06)
+
+| Item | Expected | Result |
+|------|----------|--------|
+| All evidence items shown (not just first) | Full gallery card per evidence | ✅ |
+| Each card shows AI decision label | Colour-coded PASS/FAIL/MANUAL_REVIEW | ✅ |
+| Signed URLs loaded in parallel | All photos load concurrently | ✅ |
+| Full-resolution link per photo | Opens in new tab | ✅ |
+
+---
+
+## 13. Leaflet Strict-Mode Fix (Phase 2 — Commit 85fea06)
+
+| Item | Before | After |
+|------|--------|-------|
+| live-tracking.tsx Leaflet double-init error | [Unhandled rejection] Map container already initialized | ✅ Fixed — cancelled flag + post-import guard |
+| 	racking.tsx citizen map | Same guard already in place | ✅ No change needed |
+
+---
+
+## 14. Trip Status Realtime (Phase 3 — Commit 85fea06)
+
+| Item | Expected | Result |
+|------|----------|--------|
+| Status updates live when in processing | Realtime channel fires on UPDATE | ✅ |
+| 30s polling fallback | setInterval active while in active status | ✅ |
+| Terminal statuses don't poll | pass / rejected / completed → no subscription | ✅ |
+| Cleanup on unmount | Channel removed, interval cleared | ✅ |
+
+---
+
+## 15. TypeScript Final Check (HEAD 85fea06)
+
+| App | Exit Code | Result |
+|-----|-----------|--------|
+| Admin Dashboard | 0 | ✅ PASS |
+| Citizen Frontend | 0 | ✅ PASS |
