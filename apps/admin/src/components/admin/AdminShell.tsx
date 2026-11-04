@@ -1,7 +1,8 @@
 import { Link, useRouterState, useNavigate } from "@tanstack/react-router";
 import { ChevronDown, ChevronRight, Landmark, LogOut, User, Wheat } from "lucide-react";
-import type { ChangeEvent, ReactNode } from "react";
+import { useState, useEffect, type ChangeEvent, type ReactNode } from "react";
 import { adminSignOut, type AdminUser } from "@/lib/admin-auth";
+import { getDashboardStats } from "@/lib/admin-queries";
 
 const nav = [
   { to: "/", label: "Home" },
@@ -28,6 +29,13 @@ export function AdminShell({
     await adminSignOut();
     navigate({ to: "/login" });
   }
+
+  const [pendingReview, setPendingReview] = useState<number>(0);
+  useEffect(() => {
+    getDashboardStats().then((s) => setPendingReview(s.pendingReview));
+    const id = setInterval(() => getDashboardStats().then((s) => setPendingReview(s.pendingReview)), 30000);
+    return () => clearInterval(id);
+  }, []);
 
   const displayName = adminUser?.full_name ?? adminUser?.email?.split("@")[0] ?? "Admin";
   const roleLabel =
@@ -94,6 +102,11 @@ export function AdminShell({
             >
               {n.label}
               {"caret" in n && <ChevronDown className="h-4 w-4" />}
+              {n.to === "/verification" && pendingReview > 0 && (
+                <span className="ml-1 inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-danger px-1 text-[11px] font-bold leading-none text-white">
+                  {pendingReview > 99 ? "99+" : pendingReview}
+                </span>
+              )}
             </Link>
           ))}
         </div>
