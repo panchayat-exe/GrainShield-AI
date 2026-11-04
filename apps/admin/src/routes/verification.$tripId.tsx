@@ -137,9 +137,20 @@ function Detail() {
     setActionLoading(true);
     setActionMessage(null);
 
-    const reviewId = activeReview?.id ?? tripId;
+    // Guard: a manual_review_requests row must exist — the RPC looks up by review UUID.
+    // If no review row exists (trip is in manual_review but no request was created),
+    // show a clear error rather than passing the trip ID as the review ID.
+    if (!activeReview?.id) {
+      setActionMessage({
+        type: "error",
+        text: "No pending review request found for this trip. The AI worker may not have created one yet. Please wait and refresh, or contact a system administrator.",
+      });
+      setActionLoading(false);
+      return;
+    }
+
     const res = await resolveManualReview({
-      reviewId,
+      reviewId: activeReview.id,
       tripId: trip?.id ?? tripId,
       decision: selectedDecision,
       notes: reviewerNotes.trim(),

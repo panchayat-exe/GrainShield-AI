@@ -313,79 +313,44 @@ export interface ResolveManualReviewInput {
 }
 
 /**
- * Resolves a manual review case atomically.
- * Updates review request, trip status, verification result, and writes audit log.
+ * Resolves a manual review case atomically via the resolve_manual_review RPC (Migration 016).
+ *
+ * The RPC handles:
+ *  - Authorization (officer/admin/super_admin only)
+ *  - FOR UPDATE lock — prevents double-resolution race condition
+ *  - Back-fills evidence_id if missing (fixes M013 multi-row subquery bug)
+ *  - Updates verification_results WHERE evidence_id = ... (strict, not wildcard)
+ *  - Sets consumed_at support for once-only override enforcement (Migration 015)
+ *  - Updates trip status via state-machine trigger
+ *  - Writes immutable audit log
+ *
+ * The JS multi-table fallback has been removed: the old fallback reproduced the
+ * same multi-row bug (UPDATE verification_results WHERE trip_id = ...).
+ * Any DB error is surfaced directly as actionable text to the officer UI.
  */
 export async function resolveManualReview(input: ResolveManualReviewInput) {
   if (!input.notes || input.notes.trim().length < 5) {
     return { error: "Reviewer justification notes are mandatory (minimum 5 characters)." };
   }
 
-  // 1. Try atomic database RPC
   const { data: rpcData, error: rpcErr } = await supabase.rpc("resolve_manual_review", {
     p_review_id: input.reviewId,
     p_decision: input.decision,
     p_notes: input.notes.trim(),
   });
 
-  if (!rpcErr && rpcData?.success) {
-    return { success: true, error: null };
+  if (rpcErr) {
+    // Surface the actual DB error so officers see actionable text, e.g.:
+    // "This review request has already been resolved by another officer."
+    return { error: rpcErr.message ?? "Database error resolving review. Please retry." };
   }
 
-  // 2. Resilient multi-table fallback
-  const now = new Date().toISOString();
-  const tripStatus = input.decision;
-  const verifStatus = input.decision === "rejected" ? "fail" : input.decision;
-
-  // Update review request
-  const { error: reviewErr } = await supabase
-    .from("manual_review_requests")
-    .update({
-      status: "resolved",
-      assigned_reviewer: input.reviewerId,
-      reviewer_notes: input.notes.trim(),
-      resolved_at: now,
-      updated_at: now,
-    })
-    .eq("id", input.reviewId);
-
-  if (reviewErr) return { error: `Failed to update review request: ${reviewErr.message}` };
-
-  // Update trip status
-  const { error: tripErr } = await supabase
-    .from("trips")
-    .update({ status: tripStatus, updated_at: now })
-    .eq("id", input.tripId);
-
-  if (tripErr) return { error: `Failed to update trip status: ${tripErr.message}` };
-
-  // Update verification result
-  await supabase
-    .from("verification_results")
-    .update({
-      status: verifStatus,
-      decision: input.decision.toUpperCase(),
-      explanation: `[Manual Review by ${input.reviewerEmail || input.reviewerId}]: ${input.notes.trim()}`,
-      processing_completed_at: now,
-      updated_at: now,
-    })
-    .eq("trip_id", input.tripId);
-
-  // Write immutable audit log
-  await supabase.from("audit_logs").insert({
-    actor_id: input.reviewerId,
-    action: `manual_review_${input.decision}`,
-    entity_type: "trips",
-    entity_id: input.tripId,
-    trip_id: input.tripId,
-    metadata: {
-      review_id: input.reviewId,
-      decision: input.decision,
-      notes: input.notes.trim(),
-      reviewer_email: input.reviewerEmail,
-      timestamp: now,
-    },
-  });
+  if (!rpcData?.success) {
+    return {
+      error:
+        "Review resolution returned no confirmation. Please check the audit log and retry if needed.",
+    };
+  }
 
   return { success: true, error: null };
 }
