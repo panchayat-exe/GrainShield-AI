@@ -190,7 +190,7 @@ async function runFourCheckpointsLive() {
   }).select().single();
 
   // 6. Authorized Officer Override
-  const overrideNotes1 = "FCI Gate Inspector verified physical weighbridge register and dispatch challan. Vehicle GJ01AB1234 authorized to depart.";
+  const overrideNotes1 = "[DEMONSTRATION/TEST] Simulated FCI Gate Inspector verified physical weighbridge register and dispatch challan. Vehicle GJ01AB1234 authorized to depart.";
   const { data: rpcRes1, error: rpcErr1 } = await officerClient.rpc("resolve_manual_review", {
     p_review_id: req1.id,
     p_decision: "pass",
@@ -286,7 +286,7 @@ async function runFourCheckpointsLive() {
     status: "pending",
   }).select().single();
 
-  const overrideNotes2 = "GSCSCL Receiving Officer verified physical seal, cargo weight 25.4 MT, and physical license plate. First Mile delivery accepted.";
+  const overrideNotes2 = "[DEMONSTRATION/TEST] Simulated GSCSCL Receiving Officer verified physical seal, cargo weight 25.4 MT, and physical license plate. First Mile delivery accepted.";
   const { data: rpcRes2, error: rpcErr2 } = await officerClient.rpc("resolve_manual_review", {
     p_review_id: req2.id,
     p_decision: "pass",
@@ -400,7 +400,7 @@ async function runFourCheckpointsLive() {
     status: "pending",
   }).select().single();
 
-  const overrideNotes3 = "GSCSCL Outward Gate Officer verified LCV GJ01CD5678 loaded with 50 bags (PDS Wheat). Authorized to proceed to Fair Price Shop.";
+  const overrideNotes3 = "[DEMONSTRATION/TEST] Simulated GSCSCL Outward Gate Officer verified LCV GJ01CD5678 loaded with 50 bags (PDS Wheat). Authorized to proceed to Fair Price Shop.";
   const { data: rpcRes3, error: rpcErr3 } = await officerClient.rpc("resolve_manual_review", {
     p_review_id: req3.id,
     p_decision: "pass",
@@ -495,7 +495,7 @@ async function runFourCheckpointsLive() {
     status: "pending",
   }).select().single();
 
-  const overrideNotes4 = "Food Inspector verified FPS dealer physical signature, biometric e-PoS grain receipt, and shop sign board. Delivery successfully completed.";
+  const overrideNotes4 = "[DEMONSTRATION/TEST] Simulated Food Inspector verified FPS dealer physical signature, biometric e-PoS grain receipt, and shop sign board. Delivery successfully completed.";
   const { data: rpcRes4, error: rpcErr4 } = await officerClient.rpc("resolve_manual_review", {
     p_review_id: req4.id,
     p_decision: "pass",

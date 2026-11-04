@@ -11,7 +11,7 @@
 -- 4. Geofence FAIL must block ordinary completion.
 -- 5. GPS SKIPPED or facility NOT_APPLICABLE must not be silently interpreted as verified arrival.
 -- 6. FPS shop mismatch or unreadable required shop identification must remain subject to manual review.
--- 7. Authorized overrides must be explicit and auditable via resolve_manual_review.
+-- 7. Authorized overrides must be explicit, scoped to the exact evidence ID, and auditable via resolve_manual_review.
 -- =============================================================================
 
 CREATE OR REPLACE FUNCTION public.check_trip_status_transition()
@@ -23,7 +23,6 @@ AS $$
 DECLARE
   v_latest_ev record;
   v_latest_verif record;
-  v_has_override boolean := false;
   v_override record;
 BEGIN
   -- If status did not change, allow update (e.g. updating vehicle_number or updated_at)
@@ -31,7 +30,7 @@ BEGIN
     RETURN NEW;
   END IF;
 
-  -- Allowed progression to submitted, processing, manual_review, rejected, or retake
+  -- Allowed progression to entry/processing/review queues:
   -- These represent entry into evaluation or pending queues and do not authorize grain movement
   IF NEW.status IN ('submitted', 'processing', 'manual_review', 'rejected', 'retake', 'draft') THEN
     RETURN NEW;
@@ -42,32 +41,7 @@ BEGIN
   -- These authorize grain movement or finalize government delivery.
   -- -------------------------------------------------------------------------
 
-  -- 1. Check if an authorized officer or admin has legitimately resolved a manual review
-  SELECT mr.*, p.role as reviewer_role
-  INTO v_override
-  FROM public.manual_review_requests mr
-  LEFT JOIN public.profiles p ON p.id = mr.assigned_reviewer
-  WHERE mr.trip_id = NEW.id
-    AND mr.status = 'resolved'
-    AND mr.assigned_reviewer IS NOT NULL
-    AND p.role IN ('officer', 'admin', 'super_admin')
-    AND mr.resolved_at >= (now() - INTERVAL '15 minutes')
-  ORDER BY mr.resolved_at DESC
-  LIMIT 1;
-
-  IF FOUND THEN
-    v_has_override := true;
-  END IF;
-
-  -- If an authorized officer override exists, permit the transition
-  IF v_has_override THEN
-    RETURN NEW;
-  END IF;
-
-  -- 2. No officer override exists -> This is an automated transition.
-  -- Strict Automated Rules MUST be verified:
-
-  -- Find latest evidence record for this trip
+  -- STEP 1: Every restrictive transition REQUIRES an uploaded evidence photograph.
   SELECT *
   INTO v_latest_ev
   FROM public.trip_evidence
@@ -80,13 +54,35 @@ BEGIN
       NEW.trip_code, NEW.status;
   END IF;
 
+  -- STEP 2: Check if an authorized officer or admin has legitimately resolved
+  -- a manual review request SPECIFICALLY SCOPED to THIS EXACT evidence photograph.
+  SELECT mr.*, p.role as reviewer_role
+  INTO v_override
+  FROM public.manual_review_requests mr
+  JOIN public.profiles p ON p.id = mr.assigned_reviewer
+  WHERE mr.trip_id = NEW.id
+    AND mr.evidence_id = v_latest_ev.id
+    AND mr.status = 'resolved'
+    AND mr.assigned_reviewer IS NOT NULL
+    AND p.role IN ('officer', 'admin', 'super_admin')
+    AND mr.resolved_at >= (now() - INTERVAL '15 minutes')
+  ORDER BY mr.resolved_at DESC
+  LIMIT 1;
+
+  -- If an authorized officer override exists for this exact evidence, permit the transition
+  IF FOUND THEN
+    RETURN NEW;
+  END IF;
+
+  -- STEP 3: No valid officer override exists -> Strict automated rules MUST be verified:
+
   -- Rule 4 & 5: Geofence FAIL, SKIPPED, or NOT_APPLICABLE strictly blocks completion/transit
   IF v_latest_ev.geofence_status IS NULL OR v_latest_ev.geofence_status != 'pass' THEN
     RAISE EXCEPTION 'State Machine Violation: Geofence verification not passed (status: %). Trip % cannot advance to % without authorized officer override.',
       COALESCE(v_latest_ev.geofence_status, 'missing'), NEW.trip_code, NEW.status;
   END IF;
 
-  -- Find associated verification result
+  -- Find associated verification result for this exact evidence
   SELECT *
   INTO v_latest_verif
   FROM public.verification_results
