@@ -172,7 +172,7 @@ async def health_check(request: Request):
 
 
 @app.post("/verify")
-@limiter.limit("10/minute")
+@limiter.limit("60/minute")
 async def verify_image(
     request: Request,
     image: UploadFile = File(...),
