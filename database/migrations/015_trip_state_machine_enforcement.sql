@@ -6,13 +6,21 @@
 -- RPCs, background workers, and service-role updates:
 --
 -- 1. AI PASS alone may authorize automatic progression when all required checks pass.
--- 2. AI FAIL must not automatically progress the trip.
+-- 2. AI FAIL must not automatically progress the trip (routes to rejected).
 -- 3. MANUAL_REVIEW must remain pending until an authorized officer resolves it.
 -- 4. Geofence FAIL must block ordinary completion.
 -- 5. GPS SKIPPED or facility NOT_APPLICABLE must not be silently interpreted as verified arrival.
 -- 6. FPS shop mismatch or unreadable required shop identification must remain subject to manual review.
--- 7. Authorized overrides must be explicit, scoped to the exact evidence ID, and auditable via resolve_manual_review.
+-- 7. Authorized overrides must be explicit, scoped to the exact evidence ID, once-only (consumed),
+--    and auditable via resolve_manual_review.
 -- =============================================================================
+
+-- Ensure consumed_at column exists on manual_review_requests for once-only override enforcement
+ALTER TABLE public.manual_review_requests
+  ADD COLUMN IF NOT EXISTS consumed_at TIMESTAMPTZ DEFAULT NULL;
+
+CREATE INDEX IF NOT EXISTS manual_review_requests_consumed_idx
+  ON public.manual_review_requests(trip_id, evidence_id, status, consumed_at);
 
 CREATE OR REPLACE FUNCTION public.check_trip_status_transition()
 RETURNS trigger
@@ -37,7 +45,7 @@ BEGIN
   END IF;
 
   -- -------------------------------------------------------------------------
-  -- Restrictive Transitions: 'in_transit', 'completed', 'pass'
+  -- Restrictive Transitions: 'completed', 'pass'
   -- These authorize grain movement or finalize government delivery.
   -- -------------------------------------------------------------------------
 
@@ -55,7 +63,8 @@ BEGIN
   END IF;
 
   -- STEP 2: Check if an authorized officer or admin has legitimately resolved
-  -- a manual review request SPECIFICALLY SCOPED to THIS EXACT evidence photograph.
+  -- a manual review request SPECIFICALLY SCOPED to THIS EXACT evidence photograph,
+  -- and that has NOT already been consumed by an earlier transition.
   SELECT mr.*, p.role as reviewer_role
   INTO v_override
   FROM public.manual_review_requests mr
@@ -63,14 +72,20 @@ BEGIN
   WHERE mr.trip_id = NEW.id
     AND mr.evidence_id = v_latest_ev.id
     AND mr.status = 'resolved'
+    AND mr.consumed_at IS NULL
     AND mr.assigned_reviewer IS NOT NULL
     AND p.role IN ('officer', 'admin', 'super_admin')
     AND mr.resolved_at >= (now() - INTERVAL '15 minutes')
   ORDER BY mr.resolved_at DESC
   LIMIT 1;
 
-  -- If an authorized officer override exists for this exact evidence, permit the transition
+  -- If an authorized officer override exists for this exact evidence, mark it consumed and permit the transition
   IF FOUND THEN
+    UPDATE public.manual_review_requests
+    SET consumed_at = clock_timestamp(),
+        updated_at = clock_timestamp()
+    WHERE id = v_override.id;
+
     RETURN NEW;
   END IF;
 
