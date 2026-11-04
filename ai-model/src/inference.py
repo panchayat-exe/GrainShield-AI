@@ -1,4 +1,4 @@
-﻿"""
+"""
 GrainShield AI — Computer Vision Inference Engine
 Two-stage pipeline: vehicle detection -> plate region extraction -> OCR -> decision.
 
@@ -50,7 +50,7 @@ DEFAULT_TESSERACT_PATHS = [
     Path(r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe"),
 ]
 
-# COCO class IDs in YOLOv8n
+# COCO class IDs in YOLO26n (Ultralytics C3k2+C2PSA)
 VEHICLE_CLASS_IDS = {2, 5, 7, 3}   # car, bus, truck, motorcycle
 PERSON_CLASS_ID = 0
 
@@ -555,7 +555,7 @@ def scan_fps_banner(image: np.ndarray) -> Dict[str, Any]:
 class GrainShieldInferenceEngine:
     """
     Two-stage AI pipeline for GrainShield transport verification:
-    1. YOLOv8n vehicle detection (COCO classes)
+    1. YOLO26n vehicle & person detection (COCO classes)
     2. OpenCV contour-based plate region extraction
     3. Multi-PSM Tesseract OCR
     4. Indian plate format validation & matching
@@ -875,7 +875,7 @@ class GrainShieldInferenceEngine:
             "explanation": explanation,
             "processorVersion": self.version,
             "modelVersions": {
-                "vehicle_detector": f"yolov8n-{self.model_path.name}",
+                "vehicle_detector": f"yolo26n-{self.model_path.name}",
                 "plate_extractor": "dedicated-yolo-plate-v1",
                 "plate_detector": self.plate_model_path.name,
                 "ocr_engine": f"tesseract-{self.tesseract_cmd}",

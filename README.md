@@ -55,7 +55,7 @@ Image Upload
 Image Quality Check  ──── blurry/dark/overexposed/low-res ──▶ RETAKE
     │ clear
     ▼
-YOLOv8n Vehicle Detection (COCO: car/bus/truck/motorcycle/person)
+YOLO26n Vehicle Detection (Ultralytics C3k2+C2PSA architecture: car/bus/truck/motorcycle/person)
     │ no vehicle
     ▼ ──────────────────────────────────────────────────────▶ MANUAL REVIEW
     │ vehicle(s) found
