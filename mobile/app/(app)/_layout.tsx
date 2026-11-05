@@ -17,7 +17,14 @@ export default function AppLayout() {
 
   if (loading) {
     return (
-      <View style={{ flex: 1, justifyContent: "center", alignItems: "center", backgroundColor: Colors.background }}>
+      <View
+        style={{
+          flex: 1,
+          justifyContent: "center",
+          alignItems: "center",
+          backgroundColor: Colors.background,
+        }}
+      >
         <ActivityIndicator size="large" color={Colors.saffron} />
       </View>
     );
@@ -45,27 +52,52 @@ export default function AppLayout() {
     >
       <Tabs.Screen
         name="index"
-        options={{ title: "Upload", tabBarIcon: ({ color }) => <TabIcon icon="📤" color={color} /> }}
+        options={{
+          title: "Upload",
+          tabBarIcon: ({ color }) => <TabIcon icon="📤" color={color} />,
+        }}
       />
       <Tabs.Screen
         name="processing"
-        options={{ title: "Processing", tabBarIcon: ({ color }) => <TabIcon icon="⚙️" color={color} /> }}
+        options={{
+          title: "Processing",
+          tabBarIcon: ({ color }) => <TabIcon icon="⚙️" color={color} />,
+        }}
       />
       <Tabs.Screen
         name="result"
-        options={{ title: "Result", tabBarIcon: ({ color }) => <TabIcon icon="✅" color={color} /> }}
+        options={{
+          title: "Result",
+          tabBarIcon: ({ color }) => <TabIcon icon="✅" color={color} />,
+        }}
       />
       <Tabs.Screen
         name="failed"
-        options={{ title: "Failed", tabBarIcon: ({ color }) => <TabIcon icon="❌" color={color} /> }}
+        options={{
+          title: "Failed",
+          tabBarIcon: ({ color }) => <TabIcon icon="❌" color={color} />,
+        }}
       />
       <Tabs.Screen
         name="trip"
-        options={{ title: "Trip", tabBarIcon: ({ color }) => <TabIcon icon="📋" color={color} /> }}
+        options={{
+          title: "Trip",
+          tabBarIcon: ({ color }) => <TabIcon icon="📋" color={color} />,
+        }}
       />
       <Tabs.Screen
         name="tracking"
-        options={{ title: "Tracking", tabBarIcon: ({ color }) => <TabIcon icon="📍" color={color} /> }}
+        options={{
+          title: "Tracking",
+          tabBarIcon: ({ color }) => <TabIcon icon="📍" color={color} />,
+        }}
+      />
+      <Tabs.Screen
+        name="profile"
+        options={{
+          title: "Profile",
+          tabBarIcon: ({ color }) => <TabIcon icon="👤" color={color} />,
+        }}
       />
     </Tabs>
   );
