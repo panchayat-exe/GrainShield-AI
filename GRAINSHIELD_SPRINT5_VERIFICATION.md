@@ -640,10 +640,13 @@ CI workflow (`.github/workflows/ci.yml`) runs on push to `main`. It tests:
 - Mobile: type-check + unit tests
 - AI Model: syntax check + pytest (lightweight deps only)
 
-**CI run for `70be08e`:** Triggered on push. Check live status at:  
-`https://github.com/panchayat-exe/GrainShield-AI/actions`
+**CI run for `70be08e` & `90482af`:** Verified passed in GitHub Actions:
+- **Run #102** (`70be08e`): Passed (1m 13s) — all 4 jobs green.
+- **Run #104** (`90482af`): Passed (1m 13s) — all 4 jobs green.
+- PR runs #103 and #105 also passed successfully.
 
-Local equivalents all pass ✅. CI is expected to pass on `70be08e`.
+Live status: `https://github.com/panchayat-exe/GrainShield-AI/actions`  
+Evidence captured: Screenshot `media_1793852686792_8373860c.png` confirms runs #102–#105 are all green.
 
 ---
 
@@ -771,7 +774,7 @@ ALTER TABLE public.manual_review_requests
 
 1. **Apply Migration 017** in Supabase SQL Editor (not yet applied to production)
 2. **Run diagnostic queries D1–D9** (Section 4.1) in SQL Editor and confirm expected results
-3. **Confirm GitHub Actions CI** passes on `70be08e` at: https://github.com/panchayat-exe/GrainShield-AI/actions
+3. **Confirm GitHub Actions CI** — ✅ **VERIFIED PASSED** on `70be08e` (Run #102) and `90482af` (Run #104)
 4. **Schedule UNIQUE constraint** (Migration 018) for Sprint 6 before scaling worker concurrency
 
 **NO issues remain that would prevent officer review workflow from functioning correctly** at current single-worker deployment scale. The two critical bugs found in this audit (incomplete `trips!inner` join fix, CRLF lint failures) were fixed and committed in this sprint.
