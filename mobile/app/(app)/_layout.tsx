@@ -6,6 +6,7 @@ import React from "react";
 import { Text, View, ActivityIndicator } from "react-native";
 import { Tabs, Redirect } from "expo-router";
 import { useAuth } from "@/hooks/use-auth";
+import { usePushNotifications } from "@/hooks/use-push-notifications";
 import { Colors, FontSizes } from "@/constants/colors";
 
 function TabIcon({ icon }: { icon: string; color: string }) {
@@ -14,6 +15,7 @@ function TabIcon({ icon }: { icon: string; color: string }) {
 
 export default function AppLayout() {
   const { user, loading } = useAuth();
+  usePushNotifications(); // register for push + save token to profile
 
   if (loading) {
     return (

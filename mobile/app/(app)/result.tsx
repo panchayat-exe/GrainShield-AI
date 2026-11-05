@@ -138,7 +138,7 @@ export default function ResultScreen() {
               name="refresh-circle"
               size={40}
               color={Colors.warning}
-              style={{ marginBottom: Spacing.sm }}
+              style={{ marginBottom: Spacing[3] }}
             />
             <Text
               style={[
@@ -155,7 +155,7 @@ export default function ResultScreen() {
             <Text
               style={[
                 styles.muted,
-                { textAlign: "center", marginTop: Spacing.xs },
+                { textAlign: "center", marginTop: Spacing[2] },
               ]}
             >
               An officer has reviewed your submission and requires a clearer
@@ -197,7 +197,7 @@ export default function ResultScreen() {
               name="close-circle"
               size={40}
               color={Colors.danger}
-              style={{ marginBottom: Spacing.sm }}
+              style={{ marginBottom: Spacing[3] }}
             />
             <Text
               style={[
@@ -214,7 +214,7 @@ export default function ResultScreen() {
             <Text
               style={[
                 styles.muted,
-                { textAlign: "center", marginTop: Spacing.xs },
+                { textAlign: "center", marginTop: Spacing[2] },
               ]}
             >
               This trip has been rejected by an officer. Contact your district
@@ -408,4 +408,18 @@ const styles = StyleSheet.create({
     textDecorationLine: "underline",
   },
   muted: { color: Colors.mutedForeground, fontSize: FontSizes.sm },
+  primaryBtn: {
+    height: 48,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.maroon,
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    gap: Spacing[2],
+  },
+  primaryBtnText: {
+    fontSize: FontSizes.sm,
+    fontWeight: "700",
+    color: "#fff",
+  },
 });

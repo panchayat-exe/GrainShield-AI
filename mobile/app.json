@@ -19,7 +19,8 @@
         "NSCameraUsageDescription": "GrainShield AI needs camera access to capture trip vehicle photographs for verification.",
         "NSPhotoLibraryUsageDescription": "GrainShield AI needs access to your photo library to select trip vehicle photographs.",
         "NSLocationWhenInUseUsageDescription": "GrainShield AI uses your location to record your position during grain transport trips.",
-        "NSLocationAlwaysAndWhenInUseUsageDescription": "GrainShield AI uses your location to track grain transport trip progress."
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "GrainShield AI uses your location to track grain transport trip progress.",
+        "NSUserNotificationsUsageDescription": "GrainShield AI sends notifications when your trip status changes."
       }
     },
     "android": {
@@ -34,7 +35,9 @@
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.ACCESS_FINE_LOCATION",
         "android.permission.ACCESS_COARSE_LOCATION",
-        "android.permission.ACCESS_BACKGROUND_LOCATION"
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE"
       ]
     },
     "web": {
@@ -59,6 +62,21 @@
         {
           "photosPermission": "GrainShield AI needs access to your photo library to select trip vehicle photographs.",
           "cameraPermission": "Allow GrainShield AI to access your camera to capture trip vehicle photographs."
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/icon.png",
+          "color": "#7C0A02",
+          "defaultChannel": "grainshield",
+          "sounds": []
+        }
+      ],
+      [
+        "react-native-maps",
+        {
+          "googleMapsApiKey": "YOUR_GOOGLE_MAPS_API_KEY_HERE"
         }
       ]
     ],
