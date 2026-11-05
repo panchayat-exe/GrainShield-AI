@@ -302,7 +302,11 @@ export default function ProfileScreen() {
         <TouchableOpacity
           style={styles.signOutBtn}
           onPress={async () => {
-            await supabase.auth.signOut();
+            try {
+              await supabase.auth.signOut();
+            } catch (err) {
+              console.warn("[Profile] signOut error:", err);
+            }
             router.replace("/(auth)/login");
           }}
         >

@@ -321,8 +321,11 @@ function Live() {
                 className="h-10 w-56 rounded-md border border-input bg-card px-3 text-sm"
               />
               <button
-                aria-label="Search"
-                className="grid h-10 w-10 place-items-center rounded-md bg-info text-primary-foreground"
+                aria-label="Clear search"
+                type="button"
+                onClick={() => setSearch("")}
+                className="grid h-10 w-10 place-items-center rounded-md bg-info text-primary-foreground hover:bg-info/80"
+                title="Clear search"
               >
                 <Search className="h-4 w-4" />
               </button>

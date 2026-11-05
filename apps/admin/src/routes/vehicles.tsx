@@ -1,7 +1,15 @@
 import { createFileRoute } from "@tanstack/react-router";
+import { History, X, ChevronRight } from "lucide-react";
 import { useState, useEffect, useCallback } from "react";
 import { Badge, DataTable, PageHeader, btn } from "@/components/admin/AdminShell";
-import { getVehicles, upsertVehicle, toggleVehicleActive, type Vehicle } from "@/lib/admin-queries";
+import {
+  getVehicles,
+  upsertVehicle,
+  toggleVehicleActive,
+  getVehicleTripHistory,
+  type Vehicle,
+  type VehicleTripSummary,
+} from "@/lib/admin-queries";
 import { getAdminSession, type AdminUser } from "@/lib/admin-auth";
 
 export const Route = createFileRoute("/vehicles")({
@@ -270,6 +278,18 @@ function VehicleModal({
 }
 
 function VehiclesPage() {
+  const [historyVehicle, setHistoryVehicle] = useState<Vehicle | null>(null);
+  const [vehicleTrips, setVehicleTrips] = useState<VehicleTripSummary[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
+  const openHistory = useCallback(async (v: Vehicle) => {
+    setHistoryVehicle(v);
+    setHistoryLoading(true);
+    const { trips } = await getVehicleTripHistory(v.vehicle_number);
+    setVehicleTrips(trips);
+    setHistoryLoading(false);
+  }, []);
+
   const { adminUser } = Route.useLoaderData() as {
     adminUser: AdminUser | null;
   };
@@ -387,6 +407,13 @@ function VehiclesPage() {
         Edit
       </button>
       <button
+        onClick={() => openHistory(v)}
+        className="flex items-center gap-1 text-xs font-semibold text-muted-foreground hover:underline"
+      >
+        <History className="h-3 w-3" />
+        Trips
+      </button>
+      <button
         onClick={() => handleToggleActive(v)}
         disabled={toggling === v.id}
         className={
@@ -472,6 +499,65 @@ function VehiclesPage() {
       {/* Modal */}
       {modalOpen && (
         <VehicleModal initial={editVehicle} onClose={() => setModalOpen(false)} onSaved={load} />
+      )}
+      {/* Vehicle Trip History Slide-Over Panel */}
+      {historyVehicle && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/40" onClick={() => setHistoryVehicle(null)} />
+          <div className="relative z-10 flex h-full w-full max-w-lg flex-col overflow-hidden bg-background shadow-2xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <p className="text-sm text-muted-foreground">Trip History</p>
+                <p className="text-lg font-bold">{historyVehicle.vehicle_number}</p>
+              </div>
+              <button
+                onClick={() => setHistoryVehicle(null)}
+                className={btn.outline + " px-2 py-2"}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
+            <div className="flex-1 overflow-y-auto p-4">
+              {historyLoading ? (
+                <p className="text-sm text-muted-foreground">Loading trip history&hellip;</p>
+              ) : vehicleTrips.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No trips found for this vehicle.</p>
+              ) : (
+                <div className="space-y-2">
+                  {vehicleTrips.map((trip) => (
+                    <div
+                      key={trip.id}
+                      className="rounded-xl border border-border bg-card p-3 text-sm"
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-mono font-semibold">{trip.trip_code}</span>
+                        <Badge
+                          tone={
+                            trip.status === "pass" || trip.status === "completed"
+                              ? "success"
+                              : trip.status === "rejected"
+                                ? "danger"
+                                : trip.status === "retake"
+                                  ? "warning"
+                                  : "muted"
+                          }
+                        >
+                          {trip.status.replace("_", " ").toUpperCase()}
+                        </Badge>
+                      </div>
+                      <div className="mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs text-muted-foreground">
+                        <span>{trip.stage.replace("_", " ")}</span>
+                        {trip.district && <span>{trip.district}</span>}
+                        {trip.driver_name && <span>Driver: {trip.driver_name}</span>}
+                        <span>{new Date(trip.created_at).toLocaleDateString("en-IN")}</span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );

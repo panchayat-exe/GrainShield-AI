@@ -36,13 +36,32 @@ let _latestBackgroundPosition: Location.LocationObject | null = null;
 
 
 // Register background location task (must be at module level, outside any component/hook)
+// IMPORTANT: This task runs in a separate background process. It must push directly
+// to Supabase because the foreground interval may not fire when the app is backgrounded.
 TaskManager.defineTask(LOCATION_TASK_NAME, async ({ data, error }: TaskManager.TaskManagerTaskBody<{ locations: Location.LocationObject[] }>) => {
   if (error) {
     console.warn("[GpsTracking] Background task error:", error.message);
     return;
   }
-  if (data?.locations?.length) {
-    _latestBackgroundPosition = data.locations[data.locations.length - 1];
+  if (!data?.locations?.length) return;
+
+  const latest = data.locations[data.locations.length - 1];
+  _latestBackgroundPosition = latest;
+
+  // Push directly to Supabase from background task if we have trip context
+  if (_backgroundTripId && _backgroundUserId) {
+    try {
+      await recordLocation({
+        tripId: _backgroundTripId,
+        userId: _backgroundUserId,
+        latitude: latest.coords.latitude,
+        longitude: latest.coords.longitude,
+        accuracyMeters: latest.coords.accuracy ?? undefined,
+      });
+    } catch (err) {
+      // Background tasks must not throw — log and continue
+      console.warn("[GpsTracking] Background push failed:", err);
+    }
   }
 });
 

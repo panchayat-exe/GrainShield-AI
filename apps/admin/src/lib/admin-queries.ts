@@ -585,30 +585,13 @@ export async function updateUserRole(
     return { success: true, error: null };
   }
 
-  // 2. Direct update fallback (service_role or authorized session)
-  const { error } = await supabase
-    .from("profiles")
-    .update({ role: newRole, updated_at: new Date().toISOString() })
-    .eq("id", targetUserId);
+  // 2. RPC failed — do NOT fall back to a direct profiles UPDATE (would bypass RPC-level RBAC).
+  //    Return the RPC error so the UI can surface it to the administrator.
+  const rpcMsg =
+    rpcErr?.message ?? (rpcData as { error?: string } | null)?.error ?? "Role update failed";
+  return { error: rpcMsg };
 
-  if (error) return { error: error.message };
-
-  // Write audit log
-  if (caller) {
-    await supabase.from("audit_logs").insert({
-      actor_id: caller.id,
-      action: "user_role_changed",
-      entity_type: "profiles",
-      entity_id: targetUserId,
-      metadata: {
-        old_role: targetCurrentRole,
-        new_role: newRole,
-        assigned_by: caller.id,
-      },
-    });
-  }
-
-  return { success: true, error: null };
+  // Audit log is written inside the manage_user_role RPC on success.
 }
 
 // ---------------------------------------------------------------------------
@@ -739,5 +722,45 @@ export async function toggleVehicleActive(id: string, isActive: boolean) {
     .from("vehicles")
     .update({ is_active: isActive, updated_at: new Date().toISOString() })
     .eq("id", id);
+  return { error: error?.message ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// Vehicle Trip History
+// ---------------------------------------------------------------------------
+export interface VehicleTripSummary {
+  id: string;
+  trip_code: string;
+  stage: string;
+  status: string;
+  district: string | null;
+  created_at: string;
+  driver_name: string | null;
+}
+
+export async function getVehicleTripHistory(
+  vehicleNumber: string,
+  limit = 20,
+): Promise<{ trips: VehicleTripSummary[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from("trips")
+    .select("id, trip_code, stage, status, district, created_at, driver_name")
+    .ilike("vehicle_number", vehicleNumber)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return {
+    trips: (data as VehicleTripSummary[]) ?? [],
+    error: error?.message ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Driver assignment for vehicles
+// ---------------------------------------------------------------------------
+export async function assignDriverToTrip(
+  tripId: string,
+  driverId: string | null,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("trips").update({ driver_id: driverId }).eq("id", tripId);
   return { error: error?.message ?? null };
 }

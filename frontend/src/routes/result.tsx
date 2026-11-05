@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { CheckCircle2, Loader2 } from "lucide-react";
+import { CheckCircle2, Loader2, AlertTriangle, XCircle, RefreshCcw } from "lucide-react";
 import { AppShell, Card, Row, btn } from "@/components/AppShell";
 import { useAuth } from "@/hooks/use-auth";
 import { getTripById } from "@/lib/services/trips";
@@ -42,6 +42,7 @@ function Result() {
   const [photoUrl, setPhotoUrl] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [notAuthorized, setNotAuthorized] = useState(false);
+  const [pollingActive, setPollingActive] = useState(false);
 
   useEffect(() => {
     if (!tripId || !user) {
@@ -70,6 +71,22 @@ function Result() {
       setLoading(false);
     })();
   }, [tripId, user]);
+
+  // Poll when trip is in retake/manual_review state so the page auto-refreshes
+  useEffect(() => {
+    if (!tripId || !user || !trip) return;
+    const activeStatuses = ["retake", "manual_review", "submitted", "processing"];
+    if (!activeStatuses.includes(trip.status)) {
+      setPollingActive(false);
+      return;
+    }
+    setPollingActive(true);
+    const id = setInterval(async () => {
+      const t = await getTripById(tripId);
+      if (t) setTrip(t);
+    }, 20_000);
+    return () => clearInterval(id);
+  }, [tripId, user, trip?.status]); // eslint-disable-line react-hooks/exhaustive-deps
 
   if (!user) {
     return (
@@ -109,16 +126,82 @@ function Result() {
     );
   }
 
+  // --- RETAKE REQUIRED SCREEN ---
+  if (trip.status === "retake") {
+    return (
+      <AppShell crumbs={["Home", "Trip Verification", "Result"]} title="Verification Result">
+        <div className="flex items-start gap-4 rounded-2xl border border-saffron/60 bg-warning-soft p-5">
+          <RefreshCcw className="mt-0.5 h-8 w-8 shrink-0 text-warning" />
+          <div>
+            <p className="text-xl font-bold text-warning">Retake Required</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              The officer has reviewed your submission and determined it needs to be retaken. Please
+              re-upload a clearer photo showing the vehicle number plate and vehicle type.
+            </p>
+          </div>
+        </div>
+        <Link
+          to="/"
+          search={{ tripId: tripId ?? "" }}
+          className={btn.maroon + " flex items-center justify-center gap-2"}
+        >
+          <RefreshCcw className="h-4 w-4" />
+          Upload New Photo
+        </Link>
+        <Link to="/trip" search={{ tripId: tripId ?? "" }} className={btn.outline}>
+          Back to Trip Report
+        </Link>
+        {pollingActive && (
+          <p className="text-center text-xs text-muted-foreground">
+            Auto-refreshing status&hellip;
+          </p>
+        )}
+      </AppShell>
+    );
+  }
+
+  // --- REJECTED SCREEN ---
+  if (trip.status === "rejected") {
+    return (
+      <AppShell crumbs={["Home", "Trip Verification", "Result"]} title="Verification Result">
+        <div className="flex items-start gap-4 rounded-2xl border border-danger/60 bg-danger-soft p-5">
+          <XCircle className="mt-0.5 h-8 w-8 shrink-0 text-danger" />
+          <div>
+            <p className="text-xl font-bold text-danger">Trip Rejected</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              This trip has been rejected after officer review. Contact your district supervisor for
+              further instructions.
+            </p>
+          </div>
+        </div>
+        <Link to="/my-trips" className={btn.outline}>
+          View All My Trips
+        </Link>
+      </AppShell>
+    );
+  }
+
+  // --- MANUAL REVIEW / PROCESSING SCREEN ---
   if (!verification || verification.status !== "pass") {
     return (
       <AppShell crumbs={["Home", "Trip Verification", "Result"]} title="Verification Result">
-        <div className="rounded-2xl border border-saffron/50 bg-warning-soft p-4 text-sm text-warning">
-          This trip does not have a passing verification result.{" "}
-          <Link to="/processing" search={{ tripId: tripId ?? "" }} className="underline">
-            Check processing status
-          </Link>
-          .
+        <div className="flex items-start gap-4 rounded-2xl border border-info/40 bg-info-soft p-5">
+          <AlertTriangle className="mt-0.5 h-6 w-6 shrink-0 text-info" />
+          <div>
+            <p className="font-semibold">Verification In Progress</p>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Your submission is being reviewed. This page will update automatically.
+            </p>
+          </div>
         </div>
+        <Link to="/processing" search={{ tripId: tripId ?? "" }} className={btn.outline}>
+          Check processing status
+        </Link>
+        {pollingActive && (
+          <p className="text-center text-xs text-muted-foreground">
+            Auto-refreshing status&hellip;
+          </p>
+        )}
       </AppShell>
     );
   }
