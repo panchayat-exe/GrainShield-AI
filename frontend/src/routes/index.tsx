@@ -286,6 +286,37 @@ function Upload() {
         </div>
       </Card>
 
+      {/* Checkpoint guidance — shown when stage is selected */}
+      {stage && (
+        <div className="rounded-lg border border-primary/20 bg-primary/5 px-4 py-3 text-sm">
+          {stage === "first_mile" ? (
+            <div className="space-y-1">
+              <p className="font-semibold text-primary">First Mile — 2 Checkpoints</p>
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">CP1 — Departure:</span> Photograph the
+                vehicle at the FCI Mandi / warehouse before it departs.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">CP2 — Arrival:</span> Photograph the
+                vehicle at the godown / storage depot upon arrival.
+              </p>
+            </div>
+          ) : stage === "last_mile" ? (
+            <div className="space-y-1">
+              <p className="font-semibold text-primary">Last Mile — 2 Checkpoints</p>
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">CP3 — Departure:</span> Photograph the
+                vehicle at the godown before it leaves for the Fair Price Shop.
+              </p>
+              <p className="text-xs text-muted-foreground">
+                <span className="font-medium text-foreground">CP4 — Delivery:</span> Photograph the
+                vehicle at the Fair Price Shop upon final delivery.
+              </p>
+            </div>
+          ) : null}
+        </div>
+      )}
+
       <Card title="Upload Photograph">
         <button
           onClick={() => fileRef.current?.click()}
