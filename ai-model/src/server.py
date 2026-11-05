@@ -23,7 +23,9 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 
-from src.inference import GrainShieldInferenceEngine, resolve_model_path
+import datetime
+
+from src.inference import GrainShieldInferenceEngine, resolve_model_path, resolve_plate_model_path
 
 # ---------------------------------------------------------------------------
 # Configuration
@@ -74,15 +76,36 @@ if not API_KEY:
 # Thread pool for blocking inference calls
 _executor = ThreadPoolExecutor(max_workers=2)
 
-# Global engine instance pre-loaded at startup
+# Global engine instance and health metadata pre-loaded at startup
 engine: Optional[GrainShieldInferenceEngine] = None
+_startup_time: Optional[datetime.datetime] = None
+_plate_model_status: str = "not_loaded"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
+    global engine, _startup_time, _plate_model_status
+    _startup_time = datetime.datetime.utcnow()
+
+    # Resolve and validate both models before loading
     model_path = resolve_model_path()
-    print(f"[service] Preloading GrainShield model from: {model_path}")
+    print(f"[service] Vehicle model: {model_path}")
+
+    try:
+        plate_model_path = resolve_plate_model_path()
+        print(f"[service] Plate model:   {plate_model_path}")
+        _plate_model_status = "found"
+    except FileNotFoundError as exc:
+        # Log CRITICAL -- service continues in degraded mode (no plate detector).
+        # All verifications will route to manual_review when no plate found.
+        print(f"[service] CRITICAL: plate model not found -- {exc}")
+        print(
+            "[service]          Run:  python scripts/deploy_weights.py\n"
+            "[service]          Or set PLATE_MODEL_PATH env var before starting."
+        )
+        _plate_model_status = "missing"
+        plate_model_path = None
+
     requested_device = os.environ.get("GRAINSHIELD_DEVICE", "auto").strip().lower()
 
     try:
@@ -100,12 +123,19 @@ async def lifespan(app: FastAPI):
     else:
         inference_device = requested_device
 
-    print(f"[service] Selected inference device: {inference_device}")
+    print(f"[service] Inference device: {inference_device}")
     engine = GrainShieldInferenceEngine(
         model_path=model_path,
         device=inference_device,
+        plate_model_path=plate_model_path,
     )
-    print(f"[service] Model loaded successfully. Tesseract: {engine.tesseract_cmd}")
+    _plate_model_status = "loaded"
+    print(
+        f"[service] Both models loaded. "
+        f"Vehicle: {engine.model_path.name}. "
+        f"Plate: {engine.plate_model_path.name}. "
+        f"Tesseract: {engine.tesseract_cmd}"
+    )
     yield
     print("[service] Shutting down inference service.")
     _executor.shutdown(wait=False)
@@ -159,15 +189,42 @@ def verify_api_key(authorization: Optional[str] = None):
 @app.get("/")
 @limiter.limit("120/minute")
 async def health_check(request: Request):
-    """Health check endpoint confirming service and model status."""
-    is_ready = engine is not None and engine.vehicle_model is not None
+    """
+    Health check endpoint confirming service and both model statuses.
+
+    Returns status="healthy" only when both models are loaded.
+    Returns status="degraded" when plate model is missing -- service is
+    still operational but all verifications will route to manual_review.
+    Returns status="initializing" when engine is not yet ready.
+    """
+    vehicle_ready = engine is not None and engine.vehicle_model is not None
+    plate_ready = engine is not None and engine.plate_model is not None
+    both_ready = vehicle_ready and plate_ready
+
+    uptime_seconds = None
+    if _startup_time is not None:
+        uptime_seconds = int(
+            (datetime.datetime.utcnow() - _startup_time).total_seconds()
+        )
+
     return {
-        "status": "healthy" if is_ready else "initializing",
+        "status": "healthy" if both_ready else ("degraded" if vehicle_ready else "initializing"),
         "service": "grainshield-inference",
-        "version": "1.0.0",
-        "model_loaded": is_ready,
+        "version": engine.version if engine else "unknown",
+        "models": {
+            "vehicle_detector": {
+                "loaded": vehicle_ready,
+                "path": str(engine.model_path.name) if engine else None,
+            },
+            "plate_detector": {
+                "loaded": plate_ready,
+                "status": _plate_model_status,
+                "path": str(engine.plate_model_path.name) if (engine and plate_ready) else None,
+            },
+        },
         "device": engine.device if engine else "cpu",
         "tesseract": engine.tesseract_cmd if engine else None,
+        "uptime_seconds": uptime_seconds,
     }
 
 

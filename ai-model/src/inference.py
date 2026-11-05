@@ -269,6 +269,89 @@ def extract_plate_candidates_from_vehicle(vehicle_crop: np.ndarray, max_candidat
     return crops
 
 
+def _perspective_correct(crop: "np.ndarray") -> "np.ndarray":
+    """
+    Attempts to deskew a plate crop using perspective correction.
+
+    Finds the largest quadrilateral contour that could be the plate border
+    and applies a perspective warp to produce a front-facing rectangular crop.
+    Falls back to returning the original crop unchanged if the contour cannot
+    be identified reliably, so this function is always safe to call.
+    """
+    if crop is None or crop.size == 0:
+        return crop
+
+    h, w = crop.shape[:2]
+    # Only attempt correction on images large enough for meaningful contour fitting
+    if w < 40 or h < 15:
+        return crop
+
+    gray = cv2.cvtColor(crop, cv2.COLOR_BGR2GRAY) if len(crop.shape) == 3 else crop.copy()
+
+    # Bilateral filter + Canny to find strong edges
+    blurred = cv2.bilateralFilter(gray, 9, 75, 75)
+    edges = cv2.Canny(blurred, 30, 150)
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (5, 2))
+    edges = cv2.dilate(edges, kernel, iterations=1)
+
+    contours, _ = cv2.findContours(edges, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    if not contours:
+        return crop
+
+    # Pick the largest contour by area
+    largest = max(contours, key=cv2.contourArea)
+    area = cv2.contourArea(largest)
+
+    # Must occupy at least 10% of the image area to be the plate
+    if area < 0.10 * w * h:
+        return crop
+
+    # Approximate to a quadrilateral
+    peri = cv2.arcLength(largest, True)
+    approx = cv2.approxPolyDP(largest, 0.04 * peri, True)
+
+    if len(approx) != 4:
+        return crop
+
+    pts = approx.reshape(4, 2).astype("float32")
+
+    # Order: top-left, top-right, bottom-right, bottom-left
+    rect = np.zeros((4, 2), dtype="float32")
+    s = pts.sum(axis=1)
+    rect[0] = pts[s.argmin()]   # top-left (smallest sum)
+    rect[2] = pts[s.argmax()]   # bottom-right (largest sum)
+    diff = np.diff(pts, axis=1)
+    rect[1] = pts[diff.argmin()]  # top-right (smallest diff)
+    rect[3] = pts[diff.argmax()]  # bottom-left (largest diff)
+
+    # Compute target rectangle width and height
+    width_a = np.linalg.norm(rect[1] - rect[0])
+    width_b = np.linalg.norm(rect[2] - rect[3])
+    height_a = np.linalg.norm(rect[3] - rect[0])
+    height_b = np.linalg.norm(rect[2] - rect[1])
+
+    max_w = max(int(width_a), int(width_b))
+    max_h = max(int(height_a), int(height_b))
+
+    if max_w < 20 or max_h < 8:
+        return crop
+
+    dst = np.array(
+        [[0, 0], [max_w - 1, 0], [max_w - 1, max_h - 1], [0, max_h - 1]],
+        dtype="float32",
+    )
+
+    M = cv2.getPerspectiveTransform(rect, dst)
+    warped = cv2.warpPerspective(crop, M, (max_w, max_h))
+
+    # Sanity check: warped must be meaningfully large
+    if warped.shape[0] < 8 or warped.shape[1] < 20:
+        return crop
+
+    return warped
+
+
 # ---------------------------------------------------------------------------
 # Stage 3: OCR on plate crop
 # ---------------------------------------------------------------------------
@@ -289,6 +372,10 @@ def run_plate_ocr(crop: np.ndarray) -> Tuple[str, List, str]:
 
     if crop is None or crop.size == 0:
         return "", [], "none"
+
+    # Attempt perspective correction to deskew angled plate photos before OCR.
+    # Falls back to the original crop silently if the quad cannot be found.
+    crop = _perspective_correct(crop)
 
     # Convert to grayscale
     if len(crop.shape) == 3:
