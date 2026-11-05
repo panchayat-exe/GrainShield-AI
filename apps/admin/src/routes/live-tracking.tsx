@@ -87,6 +87,17 @@ function TripCard({
         </span>
         <span className="text-muted-foreground">{formatRelative(loc.recordedAt)}</span>
       </div>
+      {/* Staleness warning: signal older than 10 minutes */}
+      {new Date().getTime() - new Date(loc.recordedAt).getTime() > 10 * 60 * 1000 && (
+        <div className="mt-1 flex items-center gap-1 text-xs font-medium text-amber-600">
+          <span>⚠</span>
+          <span>
+            Last signal{" "}
+            {Math.round((new Date().getTime() - new Date(loc.recordedAt).getTime()) / 60000)}m ago —
+            GPS may be offline
+          </span>
+        </div>
+      )}
       {loc.accuracyMeters != null && (
         <div className="mt-1 text-xs text-muted-foreground">
           ±{Math.round(loc.accuracyMeters)} m accuracy
