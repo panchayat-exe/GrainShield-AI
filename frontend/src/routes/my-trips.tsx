@@ -124,7 +124,7 @@ function MyTrips() {
       .select("id,trip_code,vehicle_number,stage,status,created_at,origin,destination", {
         count: "exact",
       })
-      .eq("user_id", user.id)
+      .or(`created_by.eq.${user.id},assigned_to.eq.${user.id},driver_id.eq.${user.id}`)
       .order("created_at", { ascending: false })
       .range(from, to)
       .then(({ data, error: err, count }) => {

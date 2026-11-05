@@ -477,6 +477,46 @@ function Detail() {
               </div>
 
               {/* Manual Review Lifecycle Section */}
+              {/* Checkpoint Context Banner */}
+              {trip && (
+                <div className="mt-4 rounded-lg border border-info/40 bg-info-soft p-3">
+                  <div className="flex items-start gap-2">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-info" />
+                    <div className="text-xs text-info">
+                      <span className="font-semibold">Checkpoint Context: </span>
+                      {trip.stage === "first_mile" && (
+                        <span>
+                          First Mile Stage — CP1 (Mandi/FCI departure) or CP2 (Godown arrival).
+                          Evidence covers the full first-mile segment.
+                        </span>
+                      )}
+                      {trip.stage === "last_mile" && (
+                        <span>
+                          Last Mile Stage — CP3 (Godown departure) or CP4 (FPS final delivery).
+                          Verify FPS banner, beneficiary signature, and delivery confirmation.
+                        </span>
+                      )}
+                      {trip.stage === "mid_mile" && (
+                        <span>
+                          Mid Mile Stage — Buffer transfer between depots. Verify vehicle, loading
+                          seal, and quantity match.
+                        </span>
+                      )}
+                      {latestVerification?.confidence != null && (
+                        <span className="ml-2 font-semibold">
+                          AI Confidence: {(latestVerification.confidence * 100).toFixed(0)}%
+                          {latestVerification.confidence < 0.75
+                            ? " ⚠ Below threshold — manual review required"
+                            : latestVerification.confidence < 0.9
+                              ? " — Borderline"
+                              : " — High confidence"}
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                </div>
+              )}
+
               <div className="mt-6 rounded-lg border border-border bg-card p-4 shadow-sm">
                 <div className="flex items-center gap-2 mb-3">
                   <ShieldAlert className="h-4 w-4 text-warning" />

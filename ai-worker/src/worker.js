@@ -521,17 +521,47 @@ async function processVerification(verification) {
  * Uses service-role key so it always succeeds regardless of RLS.
  */
 async function insertFailedJob({ verificationId, tripId, errorMessage, jobStage = "unknown" }) {
-  const { error } = await adminClient.from("failed_jobs").insert({
-    verification_id: verificationId ?? null,
-    trip_id: tripId ?? null,
-    error_message: errorMessage,
-    worker_id: WORKER_ID,
-    job_stage: jobStage,
-  });
-  if (error) {
-    console.error("[worker] Could not write to failed_jobs DLQ:", error.message);
+  // Check if an unresolved DLQ record already exists for this verification
+  const { data: existing } = await adminClient
+    .from("failed_jobs")
+    .select("id, retry_count")
+    .eq("verification_id", verificationId)
+    .is("resolved_at", null)
+    .maybeSingle();
+
+  if (existing) {
+    // Increment retry_count on the existing unresolved record
+    const newRetryCount = (existing.retry_count ?? 0) + 1;
+    const { error } = await adminClient
+      .from("failed_jobs")
+      .update({
+        retry_count: newRetryCount,
+        last_retry_at: new Date().toISOString(),
+        error_message: errorMessage,
+        worker_id: WORKER_ID,
+        job_stage: jobStage,
+      })
+      .eq("id", existing.id);
+    if (error) {
+      console.error("[worker] Could not update failed_jobs DLQ retry_count:", error.message);
+    } else {
+      console.log(`[worker] DLQ retry_count=${newRetryCount} for verification ${verificationId}`);
+    }
   } else {
-    console.log(`[worker] ⚠ Dead-letter record created for verification ${verificationId}`);
+    // First failure for this verification -- insert new DLQ record
+    const { error } = await adminClient.from("failed_jobs").insert({
+      verification_id: verificationId ?? null,
+      trip_id: tripId ?? null,
+      error_message: errorMessage,
+      worker_id: WORKER_ID,
+      job_stage: jobStage,
+      retry_count: 0,
+    });
+    if (error) {
+      console.error("[worker] Could not write to failed_jobs DLQ:", error.message);
+    } else {
+      console.log(`[worker] Dead-letter record created for verification ${verificationId}`);
+    }
   }
 }
 

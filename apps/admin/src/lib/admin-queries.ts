@@ -618,8 +618,13 @@ export async function getActiveTripLocations(): Promise<{
 }> {
   const { data: trips, error: tripErr } = await supabase
     .from("trips")
-    .select("id, trip_code, vehicle_number, driver_name, stage, status, origin, destination")
-    .in("status", ["submitted", "processing", "manual_review"])
+    .select(
+      "id, trip_code, vehicle_number, driver_name, stage, status, origin, destination, updated_at",
+    )
+    .or(
+      // Active processing states + recently completed/passed (within 2 hours) for last-mile visibility
+      `status.in.(submitted,processing,manual_review),and(status.in.(pass,completed),updated_at.gte.${new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()})`,
+    )
     .order("created_at", { ascending: false })
     .limit(50);
 
