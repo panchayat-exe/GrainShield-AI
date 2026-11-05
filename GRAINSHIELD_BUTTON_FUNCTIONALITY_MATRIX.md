@@ -276,3 +276,63 @@
 | GPS deduplication (stationary push) | `use-gps-tracking.ts` | 🟢 Backlog |
 | Processing polling silent exception swallow | `processing.tsx` | 🟢 Backlog |
 | `pass`/`completed` trips vanish from live-tracking map | `admin-queries.ts` | 🟡 Backlog |
+
+
+---
+
+## UPDATE — 2026-11-06 (Migration 025 + Auto Trip ID)
+
+### Changes Applied This Update
+
+| Fix | File | Status |
+|-----|------|--------|
+| **REMOVED Trip ID input field (citizen web)** | `frontend/src/routes/index.tsx` | ✅ **FIXED** |
+| Citizen form now calls `citizen_create_trip()` RPC | `frontend/src/lib/services/trips.ts` | ✅ **FIXED** |
+| Confirmation screen shows auto-generated GS-YYYY-NNNNNN | `frontend/src/routes/index.tsx` | ✅ **FIXED** |
+| **REMOVED Trip ID input field (mobile)** | `mobile/app/(app)/index.tsx` | ✅ **FIXED** |
+| Mobile calls `createCitizenTrip()` RPC | `mobile/lib/services/trips.ts` | ✅ **FIXED** |
+| Mobile shows Trip ID in Alert on submit | `mobile/app/(app)/index.tsx` | ✅ **FIXED** |
+| `tripSubmitSchema` added (no trip_code) | `frontend/src/lib/validation/index.ts` | ✅ **FIXED** |
+| `tripSubmitSchema` added (mobile) | `mobile/lib/validation/index.ts` | ✅ **FIXED** |
+| Mobile types synced: driver_id, vehicle_id, lat/lng columns | `mobile/lib/supabase/types.ts` | ✅ **FIXED** |
+| Checkpoint table CP1–CP4 ordering enforced | Migration 024 | ✅ **FIXED** |
+| Offline outbox: placeholder "PENDING" until online sync | `mobile/app/(app)/index.tsx` | ✅ NOTED |
+
+### Updated Upload Screen Status
+
+**Citizen Web (`frontend/src/routes/index.tsx`)**
+| Button / Element | Backend Call | Status |
+|-----------------|-------------|--------|
+| ~~Trip ID input~~ | ~~N/A~~ | 🔧 **REMOVED** |
+| Vehicle Number input | Validation only | ✅ WORKING |
+| Trip Stage select | Validation only | ✅ WORKING |
+| Origin input (optional) | Passed to RPC | ✅ WORKING |
+| Destination input (optional) | Passed to RPC | ✅ WORKING |
+| Commodity input (optional) | Passed to RPC | ✅ WORKING |
+| `Submit Trip` button | `citizen_create_trip()` RPC → evidence upload | ✅ WORKING |
+| Confirmation banner | Shows GS-YYYY-NNNNNN | ✅ WORKING |
+| Auto-redirect to /processing | setTimeout(2500) | ✅ WORKING |
+| `Reset` button | Local state reset | ✅ UI_ONLY |
+| File picker (camera/gallery) | File validation | ✅ WORKING |
+
+**Mobile (`mobile/app/(app)/index.tsx`)**
+| Button / Element | Status |
+|-----------------|--------|
+| ~~Trip ID TextInput~~ | 🔧 **REMOVED** |
+| Vehicle Number input | ✅ WORKING |
+| Stage pills (First/Last Mile) | ✅ UI_ONLY (local state) |
+| Take Photo | ✅ WORKING |
+| From Gallery | ✅ WORKING |
+| `Submit` (online) | `createCitizenTrip()` RPC → Alert shows GS-YYYY-NNNNNN | ✅ WORKING |
+| `Submit` (offline) | Saves to outbox with PENDING code | ✅ WORKING |
+| `Reset` | Local state | ✅ UI_ONLY |
+
+### Updated Remaining Known Issues
+
+| Issue | Priority | Status |
+|-------|----------|--------|
+| Offline mobile trip sync: trip_code remains PENDING until sync | Medium | ⚠️ Needs outbox sync flow update to call RPC online |
+| Origin/destination map visualization | Medium | Backlog |
+| Rate limiting on `citizen_create_trip()` RPC | Medium | Backlog |
+| Processing polling silent exception swallow | Low | Backlog |
+| GPS deduplication (stationary push) | Low | Backlog |

@@ -189,3 +189,47 @@ curl http://localhost:8000/health
 | Security (RLS, RBAC, audit log) | ✅ GO |
 
 **Recommendation:** Deploy migrations 001–021 to production now. Stage and test migration 022, then promote. GPS functionality should be marked Beta until physical device tests pass.
+
+
+---
+
+## UPDATE — 2026-11-06 (Session 3)
+
+### Migration Status (Updated)
+
+| Migration | File | Status |
+|-----------|------|--------|
+| 001–021 | Various | ✅ Applied to production |
+| 022 | `022_migration_hardening.sql` | ✅ Applied |
+| 023 | `023_catchup_and_checkpoints.sql` | ✅ Applied |
+| 024 | `024_checkpoints_table.sql` | ✅ Applied |
+| **025** | **`025_citizen_trip_rpc.sql`** | **⚠️ WRITTEN — apply to production via SQL Editor** |
+
+### Code Changes This Session
+
+| Component | Change | Status |
+|-----------|--------|--------|
+| `frontend/src/routes/index.tsx` | Manual Trip ID input removed; RPC call added | ✅ Committed |
+| `frontend/src/lib/services/trips.ts` | `createCitizenTrip()` added | ✅ Committed |
+| `frontend/src/lib/validation/index.ts` | `tripSubmitSchema` added | ✅ Committed |
+| `mobile/app/(app)/index.tsx` | Manual Trip ID removed; RPC call added | ✅ Committed |
+| `mobile/lib/services/trips.ts` | `createCitizenTrip()` added | ✅ Committed |
+| `mobile/lib/validation/index.ts` | `tripSubmitSchema` added | ✅ Committed |
+| `mobile/lib/supabase/types.ts` | Trip interface synced with DB schema | ✅ Committed |
+
+### Action Items Before Production
+
+- [ ] **Apply migration 025** to Supabase (paste SQL → Run in SQL Editor)
+- [ ] Run V025-1 through V025-5 verification queries
+- [ ] Live E2E test: citizen submits trip → verify GS-YYYY-NNNNNN appears
+- [ ] Configure `CV_PROVIDER=http` with real AI model URL
+- [ ] Physical device GPS test (see `GRAINSHIELD_GPS_PHYSICAL_DEVICE_TEST_REPORT.md`)
+- [ ] Enable Supabase daily backups
+
+### HEAD Commit
+
+```
+54f2861  feat(mobile): automatic trip ID generation + types sync
+3573b8b  feat: migration 025 + automatic citizen trip ID generation
+dc6a3d2  fix(mobile): remove react-native-maps from expo config plugins
+```
