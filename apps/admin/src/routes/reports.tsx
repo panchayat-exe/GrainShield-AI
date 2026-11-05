@@ -1,8 +1,18 @@
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  Legend,
+  ResponsiveContainer,
+} from "recharts";
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useCallback } from "react";
 import { Download, FileSpreadsheet, FileText, Calendar, Filter, RefreshCw } from "lucide-react";
 import { DataTable, PageHeader, Select, btn } from "@/components/admin/AdminShell";
-import { getReportStats, logReportExport } from "@/lib/admin-queries";
+import { getReportStats, logReportExport, getDailyTrend } from "@/lib/admin-queries";
 import { getAdminSession, type AdminUser } from "@/lib/admin-auth";
 import type { TripStage } from "@/lib/supabase";
 
@@ -109,6 +119,18 @@ function Reports() {
   const [loading, setLoading] = useState(false);
 
   const [periodOpt, setPeriodOpt] = useState("All Time");
+  const [trendData, setTrendData] = useState<
+    { date: string; total: number; pass: number; review: number }[]
+  >([]);
+  const [trendLoading, setTrendLoading] = useState(true);
+
+  // Load daily trend on mount
+  useEffect(() => {
+    getDailyTrend(30).then((data) => {
+      setTrendData(data);
+      setTrendLoading(false);
+    });
+  }, []);
   const [districtOpt, setDistrictOpt] = useState("All Districts");
   const [stageOpt, setStageOpt] = useState("All Stages");
 
@@ -223,6 +245,47 @@ function Reports() {
           No transport movements recorded matching the selected filter criteria.
         </div>
       )}
+
+      {/* Daily Trend Chart */}
+      <div className="mb-6 rounded-lg border border-border bg-card p-4 shadow-sm">
+        <h3 className="mb-3 text-sm font-semibold text-foreground">
+          Daily Trip Trend (Last 30 Days)
+        </h3>
+        {trendLoading && (
+          <p className="py-4 text-center text-xs text-muted-foreground">Loading trend data…</p>
+        )}
+        {!trendLoading && trendData.length === 0 && (
+          <p className="py-4 text-center text-xs text-muted-foreground">
+            No trip data in the last 30 days.
+          </p>
+        )}
+        {!trendLoading && trendData.length > 0 && (
+          <ResponsiveContainer width="100%" height={260}>
+            <BarChart data={trendData} margin={{ top: 4, right: 8, left: -16, bottom: 4 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10 }}
+                tickFormatter={(v: string) => {
+                  const d = new Date(v);
+                  return `${d.getDate()}/${d.getMonth() + 1}`;
+                }}
+              />
+              <YAxis tick={{ fontSize: 10 }} allowDecimals={false} />
+              <Tooltip contentStyle={{ fontSize: 12, borderRadius: 8 }} />
+              <Legend wrapperStyle={{ fontSize: 12 }} />
+              <Bar
+                dataKey="total"
+                name="Total Trips"
+                fill="hsl(var(--primary))"
+                radius={[3, 3, 0, 0]}
+              />
+              <Bar dataKey="pass" name="Passed" fill="#16a34a" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="review" name="In Review" fill="#9333ea" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
 
       {districts.length > 0 && (
         <DataTable

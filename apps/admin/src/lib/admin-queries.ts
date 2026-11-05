@@ -505,6 +505,33 @@ export async function getReportStats({
   return { districts, error: null };
 }
 
+/** Returns trip counts per day for the last N days (default 30) for the trend chart. */
+export async function getDailyTrend(
+  days = 30,
+): Promise<{ date: string; total: number; pass: number; review: number }[]> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("trips")
+    .select("created_at, status")
+    .gte("created_at", since)
+    .order("created_at", { ascending: true });
+
+  if (error || !data) return [];
+
+  const dayMap: Record<string, { total: number; pass: number; review: number }> = {};
+  for (const trip of data) {
+    const day = new Date(trip.created_at).toLocaleDateString("en-CA"); // YYYY-MM-DD
+    if (!dayMap[day]) dayMap[day] = { total: 0, pass: 0, review: 0 };
+    dayMap[day].total++;
+    if (trip.status === "pass" || trip.status === "completed") dayMap[day].pass++;
+    else if (trip.status === "manual_review") dayMap[day].review++;
+  }
+
+  return Object.entries(dayMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, v]) => ({ date, ...v }));
+}
+
 /** Logs report export event in audit trail. */
 export async function logReportExport(actorId: string, metadata: Record<string, unknown>) {
   await supabase.from("audit_logs").insert({

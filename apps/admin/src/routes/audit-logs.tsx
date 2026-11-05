@@ -196,6 +196,46 @@ function Logs() {
         </label>
       </div>
 
+      {/* Date range filter */}
+      <div className="mb-4 flex flex-wrap items-end gap-3">
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">Date From</label>
+          <input
+            type="date"
+            value={dateFrom}
+            onChange={(e) => {
+              setDateFrom(e.target.value);
+              setPage(1);
+            }}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium text-muted-foreground mb-1">Date To</label>
+          <input
+            type="date"
+            value={dateTo}
+            onChange={(e) => {
+              setDateTo(e.target.value);
+              setPage(1);
+            }}
+            className="h-9 rounded-md border border-input bg-background px-3 text-sm focus:outline-none focus:ring-2 focus:ring-primary/30"
+          />
+        </div>
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => {
+              setDateFrom("");
+              setDateTo("");
+              setPage(1);
+            }}
+            className="h-9 rounded-md border border-border px-3 text-xs font-medium text-muted-foreground hover:bg-muted transition-colors"
+          >
+            Clear Dates
+          </button>
+        )}
+      </div>
+
       <div className="mb-5">
         <SearchBox
           placeholder="Search by Trip ID, Actor ID, action, or metadata…"
