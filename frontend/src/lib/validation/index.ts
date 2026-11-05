@@ -54,6 +54,11 @@ export const tripStageSchema = z.enum(VALID_TRIP_STAGES, {
   errorMap: () => ({ message: "Please select a trip stage" }),
 });
 
+/**
+ * @deprecated uploadSchema requires a manually-entered trip_code.
+ * Use tripSubmitSchema for citizen trip creation (auto-generated ID).
+ * Kept for backward compatibility with any admin/import tooling.
+ */
 export const uploadSchema = z.object({
   trip_code: z
     .string()
@@ -68,6 +73,24 @@ export const uploadSchema = z.object({
   stage: tripStageSchema,
 });
 export type UploadInput = z.infer<typeof uploadSchema>;
+
+/**
+ * Citizen trip submission schema — no trip_code field.
+ * The backend generates the Trip ID automatically via citizen_create_trip() RPC.
+ */
+export const tripSubmitSchema = z.object({
+  vehicle_number: z
+    .string()
+    .min(4, "Vehicle number must be at least 4 characters")
+    .max(20, "Vehicle number too long")
+    .regex(/^[A-Z0-9 ]+$/i, "Invalid vehicle number format"),
+  stage: tripStageSchema,
+  origin: z.string().max(200, "Origin too long").optional(),
+  destination: z.string().max(200, "Destination too long").optional(),
+  commodity: z.string().max(100, "Commodity too long").optional(),
+  quantity_kg: z.number().positive("Quantity must be positive").max(999999).optional().nullable(),
+});
+export type TripSubmitInput = z.infer<typeof tripSubmitSchema>;
 
 export const fileValidationSchema = z.object({
   name: z.string(),

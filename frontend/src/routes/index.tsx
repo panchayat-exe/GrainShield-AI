@@ -1,28 +1,32 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import { ImageUp, TriangleAlert, Loader2, AlertCircle } from "lucide-react";
+import { ImageUp, TriangleAlert, Loader2, AlertCircle, CheckCircle2, Ticket } from "lucide-react";
 import { AppShell, Card, btn } from "@/components/AppShell";
 import { useAuth } from "@/hooks/use-auth";
-import { upsertTrip } from "@/lib/services/trips";
+import { createCitizenTrip } from "@/lib/services/trips";
 import { uploadEvidence } from "@/lib/services/evidence";
 import { createPendingVerification } from "@/lib/services/verification";
-import { uploadSchema, validateFile } from "@/lib/validation";
+import { tripSubmitSchema, validateFile } from "@/lib/validation";
 import type { TripStage } from "@/lib/supabase/types";
 
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "Upload Photo | GrainShield AI" },
+      { title: "Submit Trip | GrainShield AI" },
       {
         name: "description",
-        content: "Upload a trip vehicle photo for AI verification of food grain transport.",
+        content:
+          "Submit a food grain transport trip for AI-powered verification. Your Trip ID is generated automatically.",
       },
-      { property: "og:title", content: "Upload Photo | GrainShield AI" },
-      { property: "og:description", content: "Upload a trip vehicle photo for AI verification." },
+      { property: "og:title", content: "Submit Trip | GrainShield AI" },
+      {
+        property: "og:description",
+        content: "Submit a trip for AI verification.",
+      },
     ],
   }),
   component: Upload,
-});
+} as Parameters<typeof createFileRoute>[0] extends (arg: infer A) => unknown ? A : never);
 
 const input =
   "h-12 w-full rounded-xl border border-input bg-card px-3 text-sm outline-none focus:border-info";
@@ -32,20 +36,29 @@ function Upload() {
   const fileRef = useRef<HTMLInputElement>(null);
 
   const { user, loading: authLoading } = useAuth();
-  const [tripCode, setTripCode] = useState("");
+
+  // Form state
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [stage, setStage] = useState<TripStage | "">("");
+  const [origin, setOrigin] = useState("");
+  const [destination, setDestination] = useState("");
+  const [commodity, setCommodity] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
+
+  // Submission state
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [fileError, setFileError] = useState<string | null>(null);
   const [fieldErrors, setFieldErrors] = useState<{
-    trip_code?: string | undefined;
-    vehicle_number?: string | undefined;
-    stage?: string | undefined;
-    file?: string | undefined;
+    vehicle_number?: string;
+    stage?: string;
+    file?: string;
   }>({});
+
+  // Confirmation state — shown after successful submission
+  const [confirmedTripCode, setConfirmedTripCode] = useState<string | null>(null);
+  const [confirmedTripId, setConfirmedTripId] = useState<string | null>(null);
 
   function onFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const f = e.target.files?.[0];
@@ -57,21 +70,29 @@ function Upload() {
       return;
     }
     setFileError(null);
-    setFieldErrors((prev) => ({ ...prev, file: undefined }));
+    setFieldErrors((prev) => {
+      const n = { ...prev };
+      delete n.file;
+      return n;
+    });
     if (error) setError(null);
     setFile(f);
     setPreview(URL.createObjectURL(f));
   }
 
   function handleReset() {
-    setTripCode("");
     setVehicleNumber("");
     setStage("");
+    setOrigin("");
+    setDestination("");
+    setCommodity("");
     setFile(null);
     setPreview(null);
     setError(null);
     setFileError(null);
     setFieldErrors({});
+    setConfirmedTripCode(null);
+    setConfirmedTripId(null);
     if (fileRef.current) fileRef.current.value = "";
   }
 
@@ -86,21 +107,23 @@ function Upload() {
     }
 
     const newFieldErrors: {
-      trip_code?: string;
       vehicle_number?: string;
       stage?: string;
       file?: string;
     } = {};
 
-    // Validate form fields
-    const parsed = uploadSchema.safeParse({
-      trip_code: tripCode,
+    // Validate form fields using the new schema (no trip_code)
+    const parsed = tripSubmitSchema.safeParse({
       vehicle_number: vehicleNumber,
       stage,
+      origin: origin || undefined,
+      destination: destination || undefined,
+      commodity: commodity || undefined,
     });
+
     if (!parsed.success) {
       for (const issue of parsed.error.issues) {
-        const fieldName = issue.path[0] as "trip_code" | "vehicle_number" | "stage";
+        const fieldName = issue.path[0] as "vehicle_number" | "stage";
         if (fieldName && !newFieldErrors[fieldName]) {
           newFieldErrors[fieldName] = issue.message;
         }
@@ -114,7 +137,6 @@ function Upload() {
     if (Object.keys(newFieldErrors).length > 0) {
       setFieldErrors(newFieldErrors);
       const firstMessage =
-        newFieldErrors.trip_code ||
         newFieldErrors.vehicle_number ||
         newFieldErrors.stage ||
         newFieldErrors.file ||
@@ -129,16 +151,18 @@ function Upload() {
     setSubmitting(true);
 
     try {
-      // 1. Upsert trip record
-      const { trip, error: tripError } = await upsertTrip({
-        tripCode: parsed.data!.trip_code,
+      // 1. Create trip via backend RPC — backend generates Trip ID automatically
+      const citizenParams: Parameters<typeof createCitizenTrip>[0] = {
         vehicleNumber: parsed.data!.vehicle_number,
         stage: parsed.data!.stage as TripStage,
-        userId: user.id,
-      });
+      };
+      if (parsed.data!.origin) citizenParams.origin = parsed.data!.origin;
+      if (parsed.data!.destination) citizenParams.destination = parsed.data!.destination;
+      if (parsed.data!.commodity) citizenParams.commodity = parsed.data!.commodity;
+      const { tripId, tripCode, error: tripError } = await createCitizenTrip(citizenParams);
 
-      if (tripError || !trip) {
-        setError(tripError ?? "Failed to create trip.");
+      if (tripError || !tripId || !tripCode) {
+        setError(tripError ?? "Failed to create trip. Please try again.");
         if (typeof window !== "undefined") {
           window.scrollTo({ top: 0, behavior: "smooth" });
         }
@@ -148,13 +172,13 @@ function Upload() {
       // 2. Upload evidence photograph
       const { evidence, error: evidenceError } = await uploadEvidence({
         file: file!,
-        tripId: trip.id,
+        tripId,
         stage: parsed.data!.stage as TripStage,
         userId: user.id,
       });
 
       if (evidenceError || !evidence) {
-        setError(evidenceError ?? "Failed to upload photograph.");
+        setError(evidenceError ?? "Failed to upload photograph. Please try again.");
         if (typeof window !== "undefined") {
           window.scrollTo({ top: 0, behavior: "smooth" });
         }
@@ -163,21 +187,24 @@ function Upload() {
 
       // 3. Create pending verification record
       const { error: verError } = await createPendingVerification({
-        tripId: trip.id,
+        tripId,
         evidenceId: evidence.id,
         expectedPlate: parsed.data!.vehicle_number,
       });
 
       if (verError) {
-        // Non-fatal: navigate to processing anyway
+        // Non-fatal: log and continue — AI worker will pick up via polling
         console.warn("[upload] verification queue error:", verError);
       }
 
-      // 4. Navigate to processing with trip context
-      void nav({
-        to: "/processing",
-        search: { tripId: trip.id },
-      });
+      // 4. Show confirmation with auto-generated Trip ID, then navigate
+      setConfirmedTripCode(tripCode);
+      setConfirmedTripId(tripId);
+
+      // Auto-navigate to processing after 2.5 seconds
+      setTimeout(() => {
+        void nav({ to: "/processing", search: { tripId } });
+      }, 2500);
     } catch (err) {
       console.error("[upload] Submit failed:", err);
       const msg = err instanceof Error ? err.message : String(err);
@@ -190,17 +217,12 @@ function Upload() {
     }
   }
 
-  // Show auth prompt if not signed in and not loading
+  // ── Auth prompt ───────────────────────────────────────────────────────────
   if (!authLoading && !user) {
     return (
-      <AppShell
-        crumbs={["Home", "Trip Verification", "Upload Photo"]}
-        title="Upload Photo for Verification"
-      >
+      <AppShell crumbs={["Home", "Trip Verification", "Submit Trip"]} title="Submit a Trip">
         <div className="rounded-2xl border border-info/30 bg-info-soft p-6 text-center">
-          <p className="mb-4 text-sm text-foreground">
-            You must be signed in to submit trip evidence.
-          </p>
+          <p className="mb-4 text-sm text-foreground">You must be signed in to submit a trip.</p>
           <button onClick={() => void nav({ to: "/login" })} className={btn.saffron}>
             Sign In
           </button>
@@ -209,11 +231,46 @@ function Upload() {
     );
   }
 
+  // ── Confirmation banner (shown briefly after successful submission) ────────
+  if (confirmedTripCode && confirmedTripId) {
+    return (
+      <AppShell crumbs={["Home", "Trip Verification", "Submitted"]} title="Trip Submitted">
+        <Card>
+          <div className="flex flex-col items-center gap-4 py-4 text-center">
+            <CheckCircle2 className="h-16 w-16 text-success" />
+            <div>
+              <p className="mb-1 text-sm text-muted-foreground">Your Trip ID</p>
+              <p className="text-2xl font-bold tracking-widest text-primary">{confirmedTripCode}</p>
+            </div>
+            <p className="text-sm text-muted-foreground">
+              Save this ID for your records. You can track your trip status in{" "}
+              <strong>My Trips</strong>.
+            </p>
+            <p className="text-xs text-muted-foreground">Redirecting to verification status…</p>
+            <button
+              className={btn.saffron}
+              onClick={() => void nav({ to: "/processing", search: { tripId: confirmedTripId } })}
+            >
+              Go to Verification Status
+            </button>
+          </div>
+        </Card>
+      </AppShell>
+    );
+  }
+
+  // ── Main form ─────────────────────────────────────────────────────────────
   return (
-    <AppShell
-      crumbs={["Home", "Trip Verification", "Upload Photo"]}
-      title="Upload Photo for Verification"
-    >
+    <AppShell crumbs={["Home", "Trip Verification", "Submit Trip"]} title="Submit a Trip">
+      {/* Info banner — trip ID is auto-generated */}
+      <div className="flex items-start gap-2 rounded-xl border border-info/30 bg-info-soft p-3 text-sm text-foreground">
+        <Ticket className="mt-0.5 h-4 w-4 shrink-0 text-info" />
+        <span>
+          Your <strong>Trip ID</strong> is generated automatically by the system. You do not need to
+          enter one.
+        </span>
+      </div>
+
       <Card>
         <div className="space-y-3">
           {error && (
@@ -222,25 +279,8 @@ function Upload() {
               <span>{error}</span>
             </div>
           )}
-          <label className="block text-sm font-medium">
-            Trip ID <span className="text-danger">*</span>
-            <input
-              className={`${input} mt-1 ${fieldErrors.trip_code ? "border-danger ring-1 ring-danger" : ""}`}
-              placeholder="e.g. TRIP-1042"
-              value={tripCode}
-              onChange={(e) => {
-                setTripCode(e.target.value.toUpperCase());
-                if (fieldErrors.trip_code) {
-                  setFieldErrors((prev) => ({ ...prev, trip_code: undefined }));
-                }
-                if (error) setError(null);
-              }}
-              disabled={submitting}
-            />
-            {fieldErrors.trip_code && (
-              <p className="mt-1 text-xs text-danger">{fieldErrors.trip_code}</p>
-            )}
-          </label>
+
+          {/* Vehicle Number */}
           <label className="block text-sm font-medium">
             Vehicle No. <span className="text-danger">*</span>
             <input
@@ -250,7 +290,11 @@ function Upload() {
               onChange={(e) => {
                 setVehicleNumber(e.target.value.toUpperCase());
                 if (fieldErrors.vehicle_number) {
-                  setFieldErrors((prev) => ({ ...prev, vehicle_number: undefined }));
+                  setFieldErrors((prev) => {
+                    const n = { ...prev };
+                    delete n.vehicle_number;
+                    return n;
+                  });
                 }
                 if (error) setError(null);
               }}
@@ -260,6 +304,8 @@ function Upload() {
               <p className="mt-1 text-xs text-danger">{fieldErrors.vehicle_number}</p>
             )}
           </label>
+
+          {/* Trip Stage */}
           <label className="block text-sm font-medium">
             Trip Stage <span className="text-danger">*</span>
             <select
@@ -268,7 +314,11 @@ function Upload() {
               onChange={(e) => {
                 setStage(e.target.value as TripStage | "");
                 if (fieldErrors.stage) {
-                  setFieldErrors((prev) => ({ ...prev, stage: undefined }));
+                  setFieldErrors((prev) => {
+                    const n = { ...prev };
+                    delete n.stage;
+                    return n;
+                  });
                 }
                 if (error) setError(null);
               }}
@@ -282,6 +332,45 @@ function Upload() {
               </option>
             </select>
             {fieldErrors.stage && <p className="mt-1 text-xs text-danger">{fieldErrors.stage}</p>}
+          </label>
+
+          {/* Origin (optional) */}
+          <label className="block text-sm font-medium">
+            Origin
+            <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
+            <input
+              className={`${input} mt-1`}
+              placeholder="e.g. Ahmedabad FCI Godown"
+              value={origin}
+              onChange={(e) => setOrigin(e.target.value)}
+              disabled={submitting}
+            />
+          </label>
+
+          {/* Destination (optional) */}
+          <label className="block text-sm font-medium">
+            Destination
+            <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
+            <input
+              className={`${input} mt-1`}
+              placeholder="e.g. Gandhinagar FPS-01"
+              value={destination}
+              onChange={(e) => setDestination(e.target.value)}
+              disabled={submitting}
+            />
+          </label>
+
+          {/* Commodity (optional) */}
+          <label className="block text-sm font-medium">
+            Commodity
+            <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
+            <input
+              className={`${input} mt-1`}
+              placeholder="e.g. Wheat, Rice, Sorghum"
+              value={commodity}
+              onChange={(e) => setCommodity(e.target.value)}
+              disabled={submitting}
+            />
           </label>
         </div>
       </Card>
@@ -405,7 +494,7 @@ function Upload() {
               Submitting…
             </span>
           ) : (
-            "Submit"
+            "Submit Trip"
           )}
         </button>
       </div>
