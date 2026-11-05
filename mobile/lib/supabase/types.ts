@@ -46,9 +46,18 @@ export interface Trip {
   vehicle_number: string;
   driver_name?: string | null;
   driver_phone?: string | null;
+  driver_id?: string | null;      // added in migration 019
+  vehicle_id?: string | null;     // added in migration 022/023
   stage: TripStage;
   origin?: string | null;
   destination?: string | null;
+  origin_lat?: number | null;     // added in migration 025
+  origin_lng?: number | null;     // added in migration 025
+  destination_lat?: number | null; // added in migration 025
+  destination_lng?: number | null; // added in migration 025
+  commodity?: string | null;      // added in migration 025
+  quantity_kg?: number | null;    // added in migration 025
+  vehicle_category?: string | null; // added in migration 014
   created_by: string;
   assigned_to?: string | null;
   organization_id?: string | null;

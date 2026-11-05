@@ -5,6 +5,53 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Trip, TripStage } from "@/lib/supabase/types";
 
+// ─── Citizen automatic trip creation ─────────────────────────────────────────
+
+/**
+ * Create a new citizen trip via the citizen_create_trip() SECURITY DEFINER RPC.
+ * The backend auto-generates a GS-YYYY-NNNNNN Trip ID.
+ * Citizens NEVER supply the Trip ID.
+ */
+export async function createCitizenTrip(params: {
+  vehicleNumber: string;
+  stage: TripStage;
+  origin?: string;
+  destination?: string;
+  commodity?: string;
+}): Promise<{ tripId: string; tripCode: string; error: string | null }> {
+  const { data, error } = await supabase.rpc("citizen_create_trip", {
+    p_vehicle_number: params.vehicleNumber.toUpperCase().trim(),
+    p_stage: params.stage,
+    p_origin: params.origin?.trim() ?? null,
+    p_destination: params.destination?.trim() ?? null,
+    p_origin_lat: null,
+    p_origin_lng: null,
+    p_destination_lat: null,
+    p_destination_lng: null,
+    p_commodity: params.commodity?.trim() ?? null,
+    p_quantity_kg: null,
+  });
+
+  if (error) {
+    console.error("[trips] createCitizenTrip RPC error:", error.message);
+    return { tripId: "", tripCode: "", error: error.message };
+  }
+
+  const result = data as {
+    success: boolean;
+    trip_id?: string;
+    trip_code?: string;
+    error?: string;
+  };
+
+  if (!result.success || !result.trip_id || !result.trip_code) {
+    const msg = result.error ?? "Failed to create trip — please try again.";
+    return { tripId: "", tripCode: "", error: msg };
+  }
+
+  return { tripId: result.trip_id, tripCode: result.trip_code, error: null };
+}
+
 export async function getTripByCode(tripCode: string): Promise<Trip | null> {
   const { data, error } = await supabase
     .from("trips")

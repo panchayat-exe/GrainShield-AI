@@ -22,11 +22,11 @@ import { AppHeader } from "@/components/AppHeader";
 import { OutboxBanner } from "@/components/OutboxBanner";
 import { Card } from "@/components/Card";
 import { useAuth } from "@/hooks/use-auth";
-import { upsertTrip } from "@/lib/services/trips";
+import { createCitizenTrip } from "@/lib/services/trips";
 import { uploadEvidence } from "@/lib/services/evidence";
 import { createPendingVerification } from "@/lib/services/verification";
 import { saveToOutbox } from "@/lib/offline/outbox";
-import { uploadSchema, validatePhotoAsset } from "@/lib/validation";
+import { tripSubmitSchema, validatePhotoAsset } from "@/lib/validation";
 import type { TripStage } from "@/lib/supabase/types";
 import { Colors, FontSizes, Spacing, Radius } from "@/constants/colors";
 
@@ -41,7 +41,6 @@ export default function UploadScreen() {
   const router = useRouter();
   const { user, isOffline } = useAuth();
 
-  const [tripCode, setTripCode] = useState("");
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [stage, setStage] = useState<TripStage | "">("");
   const [photo, setPhoto] = useState<PhotoAsset | null>(null);
@@ -114,7 +113,6 @@ export default function UploadScreen() {
   }
 
   function handleReset() {
-    setTripCode("");
     setVehicleNumber("");
     setStage("");
     setPhoto(null);
@@ -130,8 +128,7 @@ export default function UploadScreen() {
       return;
     }
 
-    const parsed = uploadSchema.safeParse({
-      trip_code: tripCode,
+    const parsed = tripSubmitSchema.safeParse({
       vehicle_number: vehicleNumber,
       stage,
     });
@@ -146,13 +143,15 @@ export default function UploadScreen() {
 
     setSubmitting(true);
 
+    // Offline fallback — save to outbox (needs server-generated trip_code when online)
     const queueOffline = async () => {
       const fileName = photo.fileName ?? `photo_${Date.now()}.jpg`;
       const mimeType = photo.mimeType ?? "image/jpeg";
       const fileSize = photo.fileSize ?? 0;
 
+      // For offline outbox we store a placeholder; it will be replaced when synced online
       const { item, error: outboxError } = await saveToOutbox({
-        tripCode: parsed.data.trip_code,
+        tripCode: "PENDING",
         vehicleNumber: parsed.data.vehicle_number,
         stage: parsed.data.stage as TripStage,
         sourcePhotoUri: photo.uri,
@@ -169,7 +168,7 @@ export default function UploadScreen() {
       handleReset();
       Alert.alert(
         "📦 Saved to Offline Outbox",
-        `Trip ${item.tripCode} and evidence photograph have been stored safely on your device.\n\nWhen internet is restored, tap "Sync Now" in the outbox banner to upload to Supabase cloud.`,
+        `Evidence saved on your device. Your Trip ID will be assigned when internet is restored and you tap "Sync Now" in the outbox banner.`,
         [
           {
             text: "View Outbox / Processing",
@@ -195,15 +194,13 @@ export default function UploadScreen() {
     }
 
     try {
-      // 1. Upsert trip
-      const { trip, error: tripError } = await upsertTrip({
-        tripCode: parsed.data.trip_code,
+      // 1. Create trip via RPC — backend generates GS-YYYY-NNNNNN Trip ID
+      const { tripId, tripCode: generatedCode, error: tripError } = await createCitizenTrip({
         vehicleNumber: parsed.data.vehicle_number,
         stage: parsed.data.stage as TripStage,
-        userId: user.id,
       });
-      if (tripError || !trip) {
-        console.warn("[upload] Network trip error, saving to outbox:", tripError);
+      if (tripError || !tripId) {
+        console.warn("[upload] RPC trip creation error, saving to outbox:", tripError);
         await queueOffline();
         return;
       }
@@ -218,19 +215,19 @@ export default function UploadScreen() {
         mimeType,
         fileSize,
         fileName,
-        tripId: trip.id,
+        tripId,
         stage: parsed.data.stage as TripStage,
         userId: user.id,
       });
       if (evidenceError || !evidence) {
-        console.warn("[upload] Network evidence upload error, saving to outbox:", evidenceError);
+        console.warn("[upload] Evidence upload error, saving to outbox:", evidenceError);
         await queueOffline();
         return;
       }
 
       // 3. Create pending verification record
       const { error: verError } = await createPendingVerification({
-        tripId: trip.id,
+        tripId,
         evidenceId: evidence.id,
         expectedPlate: parsed.data.vehicle_number,
       });
@@ -238,11 +235,22 @@ export default function UploadScreen() {
         console.warn("[upload] verification queue error:", verError);
       }
 
-      // 4. Navigate to processing
-      router.push({
-        pathname: "/(app)/processing",
-        params: { tripId: trip.id },
-      });
+      // 4. Show generated Trip ID, then navigate to processing
+      Alert.alert(
+        "✅ Trip Submitted",
+        `Your Trip ID: ${generatedCode}\n\nSave this for your records. You can view trip status under My Trips.`,
+        [
+          {
+            text: "Go to Status",
+            onPress: () => {
+              router.push({
+                pathname: "/(app)/processing",
+                params: { tripId },
+              });
+            },
+          },
+        ]
+      );
     } catch (err) {
       console.warn("[upload] Exception during online submit, falling back to outbox:", err);
       await queueOffline();
@@ -274,7 +282,7 @@ export default function UploadScreen() {
       <AppHeader />
       <OutboxBanner />
       <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.pageTitle}>Upload Photo for Verification</Text>
+        <Text style={styles.pageTitle}>Submit a Trip</Text>
 
         {/* ── Trip Details Card ── */}
         <Card>
@@ -284,16 +292,7 @@ export default function UploadScreen() {
             </View>
           )}
 
-          <Text style={styles.label}>Trip ID <Text style={styles.required}>*</Text></Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. TRIP-1042"
-            placeholderTextColor={Colors.mutedForeground}
-            value={tripCode}
-            onChangeText={(t) => setTripCode(t.toUpperCase())}
-            autoCapitalize="characters"
-            editable={!submitting}
-          />
+          {/* Trip ID is auto-generated by the backend — citizens do not enter one */}
 
           <Text style={styles.label}>Vehicle No. <Text style={styles.required}>*</Text></Text>
           <TextInput
