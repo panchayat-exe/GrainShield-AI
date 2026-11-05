@@ -225,11 +225,7 @@ function Failed() {
           >
             {isManualReview ? "UNDER REVIEW" : isRetake ? "RETAKE REQUIRED" : "FAILED"}
           </p>
-          <p
-            className={`text-sm ${
-              isManualReview || isRetake ? "text-warning" : "text-danger"
-            }`}
-          >
+          <p className={`text-sm ${isManualReview || isRetake ? "text-warning" : "text-danger"}`}>
             {isManualReview
               ? "An officer will manually review your submission"
               : isRetake
@@ -249,7 +245,9 @@ function Failed() {
         />
       )}
 
-      <Card title={isManualReview ? "Review Findings" : isRetake ? "Retake Reasons" : "Failure Reasons"}>
+      <Card
+        title={isManualReview ? "Review Findings" : isRetake ? "Retake Reasons" : "Failure Reasons"}
+      >
         {failureReasons.map((r) => (
           <Row
             key={r.label}
@@ -302,22 +300,22 @@ function Failed() {
           Retake Photo
         </button>
         {!isManualReview && (
-        <button
-          className={btn.maroon}
-          onClick={() => {
-            void handleManualReview();
-          }}
-          disabled={reviewLoading || reviewMessage?.ok === true}
-        >
-          {reviewLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <>
-              <UserCheck className="h-5 w-5" />
-              Send for Manual Review
-            </>
-          )}
-        </button>
+          <button
+            className={btn.maroon}
+            onClick={() => {
+              void handleManualReview();
+            }}
+            disabled={reviewLoading || reviewMessage?.ok === true}
+          >
+            {reviewLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <>
+                <UserCheck className="h-5 w-5" />
+                Send for Manual Review
+              </>
+            )}
+          </button>
         )}
         <Link to="/trip" search={{ tripId: tripId ?? "" }} className={btn.outline}>
           Back to Trip Report

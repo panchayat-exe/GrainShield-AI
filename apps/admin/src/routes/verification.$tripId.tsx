@@ -126,7 +126,9 @@ function Detail() {
       }
     }
     void loadAllSignedUrls();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [evidence]);
 
   const handleConfirmReview = async () => {
@@ -348,17 +350,28 @@ function Detail() {
               ) : (
                 (evidence ?? []).map((ev, idx) => {
                   const evUrl = imageUrls[ev.id] ?? null;
-                  const evVer = verifications?.find((v) => v.evidence_id === ev.id) ?? (idx === 0 ? latestVerification : null);
+                  const evVer =
+                    verifications?.find((v) => v.evidence_id === ev.id) ??
+                    (idx === 0 ? latestVerification : null);
                   return (
-                    <div key={ev.id} className="rounded-lg border border-border bg-card shadow-sm overflow-hidden">
+                    <div
+                      key={ev.id}
+                      className="rounded-lg border border-border bg-card shadow-sm overflow-hidden"
+                    >
                       <div className="flex items-center justify-between px-3 py-2 bg-muted/40 border-b border-border text-xs text-muted-foreground">
-                        <span className="font-medium">Photo {idx + 1} of {(evidence ?? []).length}</span>
+                        <span className="font-medium">
+                          Photo {idx + 1} of {(evidence ?? []).length}
+                        </span>
                         {evVer && (
-                          <span className={`rounded px-2 py-0.5 font-semibold ${
-                            evVer.decision === "pass" ? "bg-success-soft text-success" :
-                            evVer.decision === "fail" ? "bg-danger-soft text-destructive" :
-                            "bg-warning-soft text-warning"
-                          }`}>
+                          <span
+                            className={`rounded px-2 py-0.5 font-semibold ${
+                              evVer.decision === "pass"
+                                ? "bg-success-soft text-success"
+                                : evVer.decision === "fail"
+                                  ? "bg-danger-soft text-destructive"
+                                  : "bg-warning-soft text-warning"
+                            }`}
+                          >
                             AI: {(evVer.decision ?? "pending").toUpperCase()}
                           </span>
                         )}
@@ -373,9 +386,19 @@ function Detail() {
                         />
                       </div>
                       <div className="p-2.5 space-y-1 text-xs text-muted-foreground">
-                        {ev.original_filename && <div><b>File:</b> {ev.original_filename}</div>}
-                        {ev.file_size && <div><b>Size:</b> {(ev.file_size / 1024).toFixed(1)} KB</div>}
-                        <div><b>Uploaded:</b> {new Date(ev.uploaded_at).toLocaleTimeString("en-IN")}</div>
+                        {ev.original_filename && (
+                          <div>
+                            <b>File:</b> {ev.original_filename}
+                          </div>
+                        )}
+                        {ev.file_size && (
+                          <div>
+                            <b>Size:</b> {(ev.file_size / 1024).toFixed(1)} KB
+                          </div>
+                        )}
+                        <div>
+                          <b>Uploaded:</b> {new Date(ev.uploaded_at).toLocaleTimeString("en-IN")}
+                        </div>
                         {evUrl && (
                           <button
                             type="button"

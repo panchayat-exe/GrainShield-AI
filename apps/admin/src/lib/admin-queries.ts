@@ -252,7 +252,7 @@ export async function getReviewQueue({
     .select(
       `
       id, status, user_notes, created_at, resolved_at, reviewer_notes, assigned_reviewer,
-      trips!inner(id, trip_code, vehicle_number, stage, origin, destination, status),
+      trips(id, trip_code, vehicle_number, stage, origin, destination, status),
       trip_evidence(id, original_filename, storage_path, uploaded_at)
     `,
       { count: "exact" },

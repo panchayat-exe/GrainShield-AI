@@ -33,7 +33,10 @@ export function AdminShell({
   const [pendingReview, setPendingReview] = useState<number>(0);
   useEffect(() => {
     getDashboardStats().then((s) => setPendingReview(s.pendingReview));
-    const id = setInterval(() => getDashboardStats().then((s) => setPendingReview(s.pendingReview)), 30000);
+    const id = setInterval(
+      () => getDashboardStats().then((s) => setPendingReview(s.pendingReview)),
+      30000,
+    );
     return () => clearInterval(id);
   }, []);
 
