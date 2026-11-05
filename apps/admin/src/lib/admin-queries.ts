@@ -132,70 +132,62 @@ export async function getTripById(tripId: string) {
   return { trip: data as Trip | null, error: error?.message ?? null };
 }
 
-export interface CreateTripInput {
-  trip_code: string;
+export interface DispatchTripInput {
   vehicle_number: string;
+  driver_id?: string | undefined;
   driver_name?: string | undefined;
   driver_phone?: string | undefined;
   stage: TripStage;
   origin?: string | undefined;
   destination?: string | undefined;
-  created_by: string;
+  /** Optional manual override. Leave blank for auto-generated GS-YYYY-NNNNNN code. */
+  trip_code?: string | undefined;
 }
 
-/** Creates a new transport trip and logs an audit record. */
-export async function createAdminTrip(input: CreateTripInput) {
-  const cleanPlate = input.vehicle_number.toUpperCase().replace(/[^A-Z0-9]/g, "");
+export interface DriverProfile {
+  id: string;
+  full_name: string | null;
+  email: string;
+  phone: string | null;
+  district: string | null;
+}
 
-  // Try RPC first
-  const { data: rpcData, error: rpcErr } = await supabase.rpc("admin_create_trip", {
-    p_trip_code: input.trip_code.trim(),
-    p_vehicle_number: cleanPlate,
-    p_driver_name: input.driver_name?.trim() ?? "",
-    p_driver_phone: input.driver_phone?.trim() ?? "",
+/**
+ * Dispatches a new trip via the admin_dispatch_trip RPC.
+ * Trip code is auto-generated server-side (GS-YYYY-NNNNNN sequence)
+ * unless an explicit override is provided.
+ */
+export async function createAdminTrip(input: DispatchTripInput) {
+  const { data, error } = await supabase.rpc("admin_dispatch_trip", {
+    p_vehicle_number: input.vehicle_number,
+    p_driver_id: input.driver_id ?? null,
+    p_driver_name: input.driver_name ?? null,
+    p_driver_phone: input.driver_phone ?? null,
     p_stage: input.stage,
-    p_origin: input.origin?.trim() ?? "",
-    p_destination: input.destination?.trim() ?? "",
+    p_origin: input.origin ?? null,
+    p_destination: input.destination ?? null,
+    p_trip_code: input.trip_code ?? null,
   });
-
-  if (!rpcErr && rpcData?.success) {
-    return { trip: rpcData, error: null };
-  }
-
-  // Fallback to direct insert with audit logging
-  const { data, error } = await supabase
-    .from("trips")
-    .insert({
-      trip_code: input.trip_code.trim(),
-      vehicle_number: cleanPlate,
-      driver_name: input.driver_name?.trim() || null,
-      driver_phone: input.driver_phone?.trim() || null,
-      stage: input.stage,
-      origin: input.origin?.trim() || null,
-      destination: input.destination?.trim() || null,
-      created_by: input.created_by,
-      status: "submitted",
-    })
-    .select()
-    .single();
 
   if (error) return { trip: null, error: error.message };
+  if (!data?.success) return { trip: null, error: data?.error ?? "Failed to dispatch trip" };
+  return {
+    trip: data as { trip_id: string; trip_code: string; vehicle: string; stage: string },
+    error: null,
+  };
+}
 
-  // Log audit record
-  await supabase.from("audit_logs").insert({
-    actor_id: input.created_by,
-    action: "trip_created",
-    entity_type: "trips",
-    entity_id: data.id,
-    trip_id: data.id,
-    metadata: {
-      trip_code: input.trip_code,
-      vehicle_number: cleanPlate,
-      stage: input.stage,
-    },
+/** Fetches user-role profiles for the driver selection dropdown. */
+export async function getDriverProfiles(
+  search = "",
+): Promise<{ profiles: DriverProfile[]; error: string | null }> {
+  const { data, error } = await supabase.rpc("get_driver_profiles", {
+    p_search: search,
   });
-
-  return { trip: data as Trip, error: null };
+  return {
+    profiles: (data as DriverProfile[]) ?? [],
+    error: error?.message ?? null,
+  };
 }
 
 export async function updateTripStatus(tripId: string, status: TripStatus, actorId?: string) {

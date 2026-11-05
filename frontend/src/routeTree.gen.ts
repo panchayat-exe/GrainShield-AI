@@ -13,6 +13,7 @@ import { Route as IndexRouteImport } from './routes/index'
 import { Route as FailedRouteImport } from './routes/failed'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as MyTripsRouteImport } from './routes/my-trips'
 import { Route as ProcessingRouteImport } from './routes/processing'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ResultRouteImport } from './routes/result'
@@ -38,6 +39,11 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const MyTripsRoute = MyTripsRouteImport.update({
+  id: '/my-trips',
+  path: '/my-trips',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ProcessingRoute = ProcessingRouteImport.update({
@@ -76,6 +82,7 @@ export interface FileRoutesByFullPath {
   '/failed': typeof FailedRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/my-trips': typeof MyTripsRoute
   '/processing': typeof ProcessingRoute
   '/register': typeof RegisterRoute
   '/result': typeof ResultRoute
@@ -88,6 +95,7 @@ export interface FileRoutesByTo {
   '/failed': typeof FailedRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/my-trips': typeof MyTripsRoute
   '/processing': typeof ProcessingRoute
   '/register': typeof RegisterRoute
   '/result': typeof ResultRoute
@@ -101,6 +109,7 @@ export interface FileRoutesById {
   '/failed': typeof FailedRoute
   '/forgot-password': typeof ForgotPasswordRoute
   '/login': typeof LoginRoute
+  '/my-trips': typeof MyTripsRoute
   '/processing': typeof ProcessingRoute
   '/register': typeof RegisterRoute
   '/result': typeof ResultRoute
@@ -115,6 +124,7 @@ export interface FileRouteTypes {
     | '/failed'
     | '/forgot-password'
     | '/login'
+    | '/my-trips'
     | '/processing'
     | '/register'
     | '/result'
@@ -127,6 +137,7 @@ export interface FileRouteTypes {
     | '/failed'
     | '/forgot-password'
     | '/login'
+    | '/my-trips'
     | '/processing'
     | '/register'
     | '/result'
@@ -139,6 +150,7 @@ export interface FileRouteTypes {
     | '/failed'
     | '/forgot-password'
     | '/login'
+    | '/my-trips'
     | '/processing'
     | '/register'
     | '/result'
@@ -152,6 +164,7 @@ export interface RootRouteChildren {
   FailedRoute: typeof FailedRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
   LoginRoute: typeof LoginRoute
+  MyTripsRoute: typeof MyTripsRoute
   ProcessingRoute: typeof ProcessingRoute
   RegisterRoute: typeof RegisterRoute
   ResultRoute: typeof ResultRoute
@@ -188,6 +201,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/my-trips': {
+      id: '/my-trips'
+      path: '/my-trips'
+      fullPath: '/my-trips'
+      preLoaderRoute: typeof MyTripsRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/processing': {
@@ -240,6 +260,7 @@ const rootRouteChildren: RootRouteChildren = {
   FailedRoute: FailedRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
   LoginRoute: LoginRoute,
+  MyTripsRoute: MyTripsRoute,
   ProcessingRoute: ProcessingRoute,
   RegisterRoute: RegisterRoute,
   ResultRoute: ResultRoute,

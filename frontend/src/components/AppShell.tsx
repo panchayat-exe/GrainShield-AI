@@ -19,6 +19,7 @@ import { isSupabaseConfigured } from "@/lib/supabase";
 
 const nav = [
   { to: "/", label: "Upload Photo" },
+  { to: "/my-trips", label: "My Trips" },
   { to: "/processing", label: "Verification" },
   { to: "/result", label: "Result (Pass)" },
   { to: "/failed", label: "Result (Failed)" },

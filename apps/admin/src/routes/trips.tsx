@@ -10,7 +10,12 @@ import {
   Select,
   btn,
 } from "@/components/admin/AdminShell";
-import { getTrips, createAdminTrip } from "@/lib/admin-queries";
+import {
+  getTrips,
+  createAdminTrip,
+  getDriverProfiles,
+  type DriverProfile,
+} from "@/lib/admin-queries";
 import type { TripStatus, TripStage } from "@/lib/supabase";
 import { getAdminSession, type AdminUser } from "@/lib/admin-auth";
 
@@ -123,9 +128,12 @@ function Trips() {
 
   // Create Trip Modal State
   const [showCreateModal, setShowCreateModal] = useState(false);
-  const [createCode, setCreateCode] = useState(`TRIP-${Math.floor(1000 + Math.random() * 9000)}`);
+  const [createCode, setCreateCode] = useState("");
   const [createVehicle, setCreateVehicle] = useState("GJ");
   const [createDriver, setCreateDriver] = useState("");
+  const [createDriverId, setCreateDriverId] = useState<string>("");
+  const [driverProfiles, setDriverProfiles] = useState<DriverProfile[]>([]);
+  const [driverSearch, setDriverSearch] = useState("");
   const [createPhone, setCreatePhone] = useState("");
   const [createStage, setCreateStage] = useState<TripStage>("first_mile");
   const [createOrigin, setCreateOrigin] = useState("Ahmedabad FCI Godown");
@@ -152,6 +160,12 @@ function Trips() {
     },
     [],
   );
+
+  // Load driver profiles when modal opens
+  useEffect(() => {
+    if (!showCreateModal) return;
+    void getDriverProfiles(driverSearch).then(({ profiles }) => setDriverProfiles(profiles));
+  }, [showCreateModal, driverSearch]);
 
   // Re-fetch whenever filter/search/page changes (debounce search by 300ms)
   useEffect(() => {
@@ -194,14 +208,14 @@ function Trips() {
     }
 
     const { trip, error: err } = await createAdminTrip({
-      trip_code: createCode.trim(),
+      trip_code: createCode.trim() || undefined,
       vehicle_number: cleanPlate,
+      driver_id: createDriverId || undefined,
       driver_name: createDriver.trim() || undefined,
       driver_phone: createPhone.trim() || undefined,
       stage: createStage,
       origin: createOrigin.trim() || undefined,
       destination: createDest.trim() || undefined,
-      created_by: adminUser.id,
     });
 
     if (err || !trip) {
@@ -212,7 +226,9 @@ function Trips() {
 
     setShowCreateModal(false);
     setCreateLoading(false);
-    setCreateCode(`TRIP-${Math.floor(1000 + Math.random() * 9000)}`);
+    setCreateCode("");
+    setCreateDriverId("");
+    setDriverSearch("");
     setCreateVehicle("GJ");
     setCreateDriver("");
     setCreatePhone("");
@@ -226,7 +242,13 @@ function Trips() {
         title="All Trips"
         subtitle={`${total} grain movement${total !== 1 ? "s" : ""} across the district`}
         right={
-          <button onClick={() => setShowCreateModal(true)} className={btn.primary}>
+          <button
+            onClick={() => {
+              setShowCreateModal(true);
+              getDriverProfiles("").then(({ profiles }) => setDriverProfiles(profiles ?? []));
+            }}
+            className={btn.primary}
+          >
             <Plus className="h-4 w-4" />
             Create Trip
           </button>
@@ -337,11 +359,14 @@ function Trips() {
                   <label className="block text-xs font-medium text-foreground">Trip Code</label>
                   <input
                     type="text"
-                    required
                     value={createCode}
                     onChange={(e) => setCreateCode(e.target.value)}
+                    placeholder="Auto-generated (GS-YYYY-NNNNNN)"
                     className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
                   />
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Leave blank to auto-generate a unique trip code.
+                  </p>
                 </div>
                 <div>
                   <label className="block text-xs font-medium text-foreground">
@@ -360,7 +385,47 @@ function Trips() {
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-medium text-foreground">Driver Name</label>
+                  <label className="block text-xs font-medium text-foreground">
+                    Driver (Registered Profile)
+                  </label>
+                  <input
+                    type="text"
+                    value={driverSearch}
+                    onChange={(e) => {
+                      setDriverSearch(e.target.value);
+                      getDriverProfiles(e.target.value).then(({ profiles }) =>
+                        setDriverProfiles(profiles ?? []),
+                      );
+                    }}
+                    placeholder="Search driver by name or email…"
+                    className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  />
+                  {driverProfiles.length > 0 && (
+                    <select
+                      value={createDriverId}
+                      onChange={(e) => {
+                        const p = driverProfiles.find((d) => d.id === e.target.value);
+                        setCreateDriverId(e.target.value);
+                        if (p) setCreateDriver(p.full_name ?? p.email ?? "");
+                      }}
+                      className="mt-1 h-9 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    >
+                      <option value="">— Select registered driver —</option>
+                      {driverProfiles.map((p) => (
+                        <option key={p.id} value={p.id}>
+                          {p.full_name ?? "Unknown"} ({p.email})
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="mt-1 text-xs text-muted-foreground">
+                    Or enter name manually below if driver is unregistered.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-xs font-medium text-foreground">
+                    Driver Name (Manual Fallback)
+                  </label>
                   <input
                     type="text"
                     value={createDriver}
