@@ -11,11 +11,14 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AuditLogsRouteImport } from './routes/audit-logs'
+import { Route as FailedJobsRouteImport } from './routes/failed-jobs'
 import { Route as LiveTrackingRouteImport } from './routes/live-tracking'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as ReportsRouteImport } from './routes/reports'
 import { Route as TripsRouteImport } from './routes/trips'
 import { Route as UsersRouteImport } from './routes/users'
+import { Route as VehiclesRouteImport } from './routes/vehicles'
 import { Route as VerificationIndexRouteImport } from './routes/verification.index'
 import { Route as VerificationTripIdRouteImport } from './routes/verification.$tripId'
 
@@ -29,6 +32,11 @@ const AuditLogsRoute = AuditLogsRouteImport.update({
   path: '/audit-logs',
   getParentRoute: () => rootRouteImport,
 } as any)
+const FailedJobsRoute = FailedJobsRouteImport.update({
+  id: '/failed-jobs',
+  path: '/failed-jobs',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LiveTrackingRoute = LiveTrackingRouteImport.update({
   id: '/live-tracking',
   path: '/live-tracking',
@@ -37,6 +45,11 @@ const LiveTrackingRoute = LiveTrackingRouteImport.update({
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ReportsRoute = ReportsRouteImport.update({
@@ -54,6 +67,11 @@ const UsersRoute = UsersRouteImport.update({
   path: '/users',
   getParentRoute: () => rootRouteImport,
 } as any)
+const VehiclesRoute = VehiclesRouteImport.update({
+  id: '/vehicles',
+  path: '/vehicles',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const VerificationIndexRoute = VerificationIndexRouteImport.update({
   id: '/verification/',
   path: '/verification/',
@@ -68,22 +86,28 @@ const VerificationTripIdRoute = VerificationTripIdRouteImport.update({
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/audit-logs': typeof AuditLogsRoute
+  '/failed-jobs': typeof FailedJobsRoute
   '/live-tracking': typeof LiveTrackingRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/reports': typeof ReportsRoute
   '/trips': typeof TripsRoute
   '/users': typeof UsersRoute
+  '/vehicles': typeof VehiclesRoute
   '/verification/$tripId': typeof VerificationTripIdRoute
   '/verification/': typeof VerificationIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/audit-logs': typeof AuditLogsRoute
+  '/failed-jobs': typeof FailedJobsRoute
   '/live-tracking': typeof LiveTrackingRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/reports': typeof ReportsRoute
   '/trips': typeof TripsRoute
   '/users': typeof UsersRoute
+  '/vehicles': typeof VehiclesRoute
   '/verification/$tripId': typeof VerificationTripIdRoute
   '/verification': typeof VerificationIndexRoute
 }
@@ -91,11 +115,14 @@ export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/': typeof IndexRoute
   '/audit-logs': typeof AuditLogsRoute
+  '/failed-jobs': typeof FailedJobsRoute
   '/live-tracking': typeof LiveTrackingRoute
   '/login': typeof LoginRoute
+  '/profile': typeof ProfileRoute
   '/reports': typeof ReportsRoute
   '/trips': typeof TripsRoute
   '/users': typeof UsersRoute
+  '/vehicles': typeof VehiclesRoute
   '/verification/$tripId': typeof VerificationTripIdRoute
   '/verification/': typeof VerificationIndexRoute
 }
@@ -104,33 +131,42 @@ export interface FileRouteTypes {
   fullPaths:
     | '/'
     | '/audit-logs'
+    | '/failed-jobs'
     | '/live-tracking'
     | '/login'
+    | '/profile'
     | '/reports'
     | '/trips'
     | '/users'
+    | '/vehicles'
     | '/verification/$tripId'
     | '/verification/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
     | '/audit-logs'
+    | '/failed-jobs'
     | '/live-tracking'
     | '/login'
+    | '/profile'
     | '/reports'
     | '/trips'
     | '/users'
+    | '/vehicles'
     | '/verification/$tripId'
     | '/verification'
   id:
     | '__root__'
     | '/'
     | '/audit-logs'
+    | '/failed-jobs'
     | '/live-tracking'
     | '/login'
+    | '/profile'
     | '/reports'
     | '/trips'
     | '/users'
+    | '/vehicles'
     | '/verification/$tripId'
     | '/verification/'
   fileRoutesById: FileRoutesById
@@ -138,11 +174,14 @@ export interface FileRouteTypes {
 export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AuditLogsRoute: typeof AuditLogsRoute
+  FailedJobsRoute: typeof FailedJobsRoute
   LiveTrackingRoute: typeof LiveTrackingRoute
   LoginRoute: typeof LoginRoute
+  ProfileRoute: typeof ProfileRoute
   ReportsRoute: typeof ReportsRoute
   TripsRoute: typeof TripsRoute
   UsersRoute: typeof UsersRoute
+  VehiclesRoute: typeof VehiclesRoute
   VerificationTripIdRoute: typeof VerificationTripIdRoute
   VerificationIndexRoute: typeof VerificationIndexRoute
 }
@@ -163,6 +202,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AuditLogsRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/failed-jobs': {
+      id: '/failed-jobs'
+      path: '/failed-jobs'
+      fullPath: '/failed-jobs'
+      preLoaderRoute: typeof FailedJobsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/live-tracking': {
       id: '/live-tracking'
       path: '/live-tracking'
@@ -175,6 +221,13 @@ declare module '@tanstack/react-router' {
       path: '/login'
       fullPath: '/login'
       preLoaderRoute: typeof LoginRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/reports': {
@@ -198,6 +251,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof UsersRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/vehicles': {
+      id: '/vehicles'
+      path: '/vehicles'
+      fullPath: '/vehicles'
+      preLoaderRoute: typeof VehiclesRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/verification/': {
       id: '/verification/'
       path: '/verification'
@@ -218,11 +278,14 @@ declare module '@tanstack/react-router' {
 const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AuditLogsRoute: AuditLogsRoute,
+  FailedJobsRoute: FailedJobsRoute,
   LiveTrackingRoute: LiveTrackingRoute,
   LoginRoute: LoginRoute,
+  ProfileRoute: ProfileRoute,
   ReportsRoute: ReportsRoute,
   TripsRoute: TripsRoute,
   UsersRoute: UsersRoute,
+  VehiclesRoute: VehiclesRoute,
   VerificationTripIdRoute: VerificationTripIdRoute,
   VerificationIndexRoute: VerificationIndexRoute,
 }

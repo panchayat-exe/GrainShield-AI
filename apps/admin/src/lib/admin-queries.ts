@@ -683,3 +683,61 @@ export async function getActiveTripLocations(): Promise<{
 
   return { locations, error: null };
 }
+
+// ---------------------------------------------------------------------------
+// Vehicle Registry
+// ---------------------------------------------------------------------------
+export interface Vehicle {
+  id: string;
+  vehicle_number: string;
+  vehicle_type: "truck" | "mini_truck" | "tempo" | "tractor" | "other";
+  capacity_tonnes: number | null;
+  owner_name: string | null;
+  owner_phone: string | null;
+  registration_expiry: string | null;
+  insurance_expiry: string | null;
+  fitness_expiry: string | null;
+  is_active: boolean;
+  notes: string | null;
+  organization_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export async function getVehicles({
+  page = 1,
+  pageSize = 50,
+  search = "",
+  activeOnly = false,
+}: { page?: number; pageSize?: number; search?: string; activeOnly?: boolean } = {}) {
+  let query = supabase
+    .from("vehicles")
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range((page - 1) * pageSize, page * pageSize - 1);
+  if (search) query = query.ilike("vehicle_number", `%${search}%`);
+  if (activeOnly) query = query.eq("is_active", true);
+  const { data, error, count } = await query;
+  return {
+    vehicles: (data as Vehicle[]) ?? [],
+    total: count ?? 0,
+    error: error?.message ?? null,
+  };
+}
+
+export async function upsertVehicle(v: Omit<Vehicle, "id" | "created_at" | "updated_at">) {
+  const { data, error } = await supabase
+    .from("vehicles")
+    .upsert({ ...v, updated_at: new Date().toISOString() }, { onConflict: "vehicle_number" })
+    .select()
+    .maybeSingle();
+  return { vehicle: data as Vehicle | null, error: error?.message ?? null };
+}
+
+export async function toggleVehicleActive(id: string, isActive: boolean) {
+  const { error } = await supabase
+    .from("vehicles")
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  return { error: error?.message ?? null };
+}
