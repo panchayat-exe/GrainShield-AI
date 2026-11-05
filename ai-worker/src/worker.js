@@ -512,6 +512,29 @@ async function processVerification(verification) {
   );
 }
 
+
+// ------------------------------------
+// Dead-Letter Queue helper
+// ------------------------------------
+/**
+ * Inserts a failed-job record into public.failed_jobs (DLQ).
+ * Uses service-role key so it always succeeds regardless of RLS.
+ */
+async function insertFailedJob({ verificationId, tripId, errorMessage, jobStage = "unknown" }) {
+  const { error } = await adminClient.from("failed_jobs").insert({
+    verification_id: verificationId ?? null,
+    trip_id: tripId ?? null,
+    error_message: errorMessage,
+    worker_id: WORKER_ID,
+    job_stage: jobStage,
+  });
+  if (error) {
+    console.error("[worker] Could not write to failed_jobs DLQ:", error.message);
+  } else {
+    console.log(`[worker] ⚠ Dead-letter record created for verification ${verificationId}`);
+  }
+}
+
 async function failVerification(verificationId, tripId, reason) {
   console.error(`[worker] Failing verification ${verificationId}: ${reason}`);
   const now = new Date().toISOString();
@@ -552,6 +575,14 @@ async function failVerification(verificationId, tripId, reason) {
     trip_id: tripId,
     metadata: { status: "error", reason },
   });
+
+  // Write to dead-letter queue for operator visibility
+  await insertFailedJob({
+    verificationId,
+    tripId,
+    errorMessage: reason,
+    jobStage: "processing",
+  });
 }
 
 // ------------------------------------
@@ -567,6 +598,40 @@ async function pollAndProcess() {
   pollInProgress = true;
 
   try {
+    // ── Stall recovery: mark jobs stuck in 'processing' for > PROCESSING_TIMEOUT_MS ──
+    const stallCutoff = new Date(Date.now() - PROCESSING_TIMEOUT_MS).toISOString();
+    const { data: stalledJobs } = await adminClient
+      .from("verification_results")
+      .select("id, trip_id")
+      .eq("status", "processing")
+      .lt("claimed_at", stallCutoff);
+
+    if (stalledJobs?.length) {
+      console.warn(`[worker] Found ${stalledJobs.length} stalled job(s) — marking as error`);
+      for (const stalled of stalledJobs) {
+        const stallReason = `Job stalled in 'processing' for >${PROCESSING_TIMEOUT_MS}ms without completion`;
+        await adminClient
+          .from("verification_results")
+          .update({
+            status: "error",
+            explanation: stallReason,
+            failure_reason: stallReason,
+            processing_completed_at: new Date().toISOString(),
+            claimed_by: null,
+            claimed_at: null,
+          })
+          .eq("id", stalled.id)
+          .eq("status", "processing");
+
+        await insertFailedJob({
+          verificationId: stalled.id,
+          tripId: stalled.trip_id,
+          errorMessage: stallReason,
+          jobStage: "stall_recovery",
+        });
+      }
+    }
+
     let claimedCount = 0;
 
     // The RPC atomically claims one pending job per call.
