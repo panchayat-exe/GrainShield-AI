@@ -1,258 +1,536 @@
 -- =============================================================
 -- Migration 019: Server-side Trip Code Generator
 -- GrainShield AI — Phase 2: Automatic Trip Generation
--- Idempotent: safe to run multiple times.
--- =============================================================
--- DO NOT APPLY TO PRODUCTION WITHOUT EXPLICIT AUTHORIZATION.
--- Apply via: Supabase Dashboard > SQL Editor, or supabase db push
--- =============================================================
-
--- -----------------------------------------------
--- 1. Trip code sequence (global, monotonically increasing)
--- -----------------------------------------------
-create sequence if not exists public.trip_code_seq start 100001 increment 1;
-
--- -----------------------------------------------
--- 2. generate_trip_code() — returns GS-YYYY-NNNNNN
--- -----------------------------------------------
-create or replace function public.generate_trip_code()
-returns text
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_year  text;
-  v_seq   text;
-begin
-  v_year := to_char(now(), 'YYYY');
-  v_seq  := lpad(nextval('public.trip_code_seq')::text, 6, '0');
-  return 'GS-' || v_year || '-' || v_seq;
-end;
-$$;
-
-comment on function public.generate_trip_code() is
-  'Generates a unique, monotonically increasing trip code in the format GS-YYYY-NNNNNN.';
-
--- -----------------------------------------------
--- 3. Add driver_id column (nullable, FK to profiles)
---    Null = unassigned / legacy trip; non-null = admin-dispatched.
--- -----------------------------------------------
-alter table public.trips
-  add column if not exists driver_id uuid references public.profiles(id) on delete set null;
-
-create index if not exists trips_driver_id_idx on public.trips(driver_id);
-
-comment on column public.trips.driver_id is
-  'UUID of the assigned driver profile. NULL for legacy trips or unassigned dispatches.';
-
--- -----------------------------------------------
--- 4. Drop the per-admin uniqueness constraint and
---    replace it with a true global uniqueness constraint.
 --
---    SAFE: existing data is preserved. Only the uniqueness
---    scope changes from (trip_code, created_by) to (trip_code).
---    If existing data has duplicate trip_codes across different
---    created_by values, this migration will fail — the diagnostic
---    query below detects this case.
--- -----------------------------------------------
+-- FEATURES:
+-- 1. Global monotonically increasing trip-code sequence
+-- 2. GS-YYYY-NNNNNN trip-code generation
+-- 3. Driver assignment column and foreign key
+-- 4. Global trip-code uniqueness
+-- 5. Secure admin_dispatch_trip() RPC
+-- 6. Secure get_driver_profiles() RPC
+-- 7. Audit logging
+--
+-- IDEMPOTENT: Designed to be safely re-executed.
+--
+-- IMPORTANT:
+-- Test on staging before production.
+-- Existing duplicate trip codes will abort the migration.
+-- =============================================================
 
--- Diagnostic: check for conflicting trip codes before constraint change.
--- If this returns rows, do NOT apply the constraint change without resolving them first.
-do $$
-declare
-  conflict_count integer;
-begin
-  select count(*)
-    into conflict_count
-    from (
-      select trip_code, count(distinct created_by) as creator_count
-        from public.trips
-       group by trip_code
-      having count(distinct created_by) > 1
-    ) sub;
+BEGIN;
 
-  if conflict_count > 0 then
-    raise notice
-      '[migration-019] WARNING: % trip_code(s) exist across multiple created_by values. '
-      'The global unique constraint on trip_code has NOT been applied. '
-      'Resolve duplicate codes before re-running this migration step.',
-      conflict_count;
-  else
-    -- Safe to proceed: no cross-creator duplicates exist
-    -- Drop the per-admin constraint only if it exists
-    if exists (
-      select 1
-        from pg_constraint
-       where conname = 'trips_trip_code_created_by_key'
-         and conrelid = 'public.trips'::regclass
-    ) then
-      alter table public.trips drop constraint trips_trip_code_created_by_key;
-      raise notice '[migration-019] Dropped trips_trip_code_created_by_key constraint.';
-    end if;
+-- =============================================================
+-- 0. PREFLIGHT: CHECK DUPLICATE TRIP CODES
+-- =============================================================
 
-    -- Add global trip_code uniqueness if not already present
-    if not exists (
-      select 1
-        from pg_constraint
-       where conname = 'trips_trip_code_unique'
-         and conrelid = 'public.trips'::regclass
-    ) then
-      alter table public.trips add constraint trips_trip_code_unique unique (trip_code);
-      raise notice '[migration-019] Added global trips_trip_code_unique constraint.';
-    else
-      raise notice '[migration-019] trips_trip_code_unique already exists — skipped.';
-    end if;
-  end if;
-end $$;
+DO $preflight$
+DECLARE
+    v_duplicate_groups bigint;
+BEGIN
+    SELECT COUNT(*)
+      INTO v_duplicate_groups
+      FROM (
+          SELECT trip_code
+            FROM public.trips
+           WHERE trip_code IS NOT NULL
+           GROUP BY trip_code
+          HAVING COUNT(*) > 1
+      ) duplicates;
 
--- -----------------------------------------------
--- 5. admin_dispatch_trip() RPC — creates a trip with an auto-generated code.
---    Called by admin panel; enforces super_admin / admin role.
--- -----------------------------------------------
-create or replace function public.admin_dispatch_trip(
-  p_vehicle_number  text,
-  p_driver_id       uuid     default null,
-  p_driver_name     text     default null,
-  p_driver_phone    text     default null,
-  p_stage           text     default 'first_mile',
-  p_origin          text     default null,
-  p_destination     text     default null,
-  p_trip_code       text     default null   -- optional override; auto-generated when null
-)
-returns jsonb
-language plpgsql
-security definer
-set search_path = public
-as $$
-declare
-  v_actor_id    uuid;
-  v_actor_role  user_role;
-  v_trip_code   text;
-  v_trip_id     uuid;
-  v_clean_plate text;
-begin
-  -- Identity and authorization
-  v_actor_id := auth.uid();
-  if v_actor_id is null then
-    return jsonb_build_object('success', false, 'error', 'Not authenticated');
-  end if;
+    IF v_duplicate_groups > 0 THEN
+        RAISE EXCEPTION
+            '[migration-019] ABORTED: % duplicate trip_code groups found. Resolve duplicates before applying this migration.',
+            v_duplicate_groups;
+    END IF;
+END;
+$preflight$;
 
-  select role into v_actor_role
-    from public.profiles
-   where id = v_actor_id;
+-- =============================================================
+-- 1. CREATE TRIP CODE SEQUENCE
+-- =============================================================
 
-  if v_actor_role not in ('admin', 'super_admin') then
-    return jsonb_build_object('success', false, 'error', 'Only administrators can dispatch trips');
-  end if;
+CREATE SEQUENCE IF NOT EXISTS public.trip_code_seq
+    START WITH 100001
+    INCREMENT BY 1
+    MINVALUE 1
+    NO MAXVALUE
+    CACHE 1;
 
-  -- Validate vehicle number
-  v_clean_plate := upper(regexp_replace(p_vehicle_number, '[^A-Z0-9]', '', 'g'));
-  if length(v_clean_plate) < 5 then
-    return jsonb_build_object('success', false, 'error', 'Invalid vehicle registration number');
-  end if;
+ALTER SEQUENCE public.trip_code_seq
+    INCREMENT BY 1
+    MINVALUE 1
+    NO MAXVALUE;
 
-  -- Determine trip code
-  if p_trip_code is not null and length(trim(p_trip_code)) > 0 then
-    v_trip_code := trim(p_trip_code);
-    -- Reject if manual code clashes with existing
-    if exists (select 1 from public.trips where trip_code = v_trip_code) then
-      return jsonb_build_object(
-        'success', false,
-        'error', format('Trip code %s already exists. Leave blank for auto-generation.', v_trip_code)
-      );
-    end if;
-  else
-    v_trip_code := public.generate_trip_code();
-  end if;
+-- =============================================================
+-- 2. SYNCHRONIZE SEQUENCE WITH EXISTING TRIP CODES
+-- =============================================================
 
-  -- Validate stage
-  if p_stage not in ('first_mile', 'mid_mile', 'last_mile') then
-    return jsonb_build_object('success', false, 'error', 'Invalid stage value');
-  end if;
+DO $sequence_sync$
+DECLARE
+    v_max_existing_suffix numeric;
+    v_last_value bigint;
+    v_is_called boolean;
+    v_actual_next numeric;
+    v_required_next numeric;
+    v_max_bigint constant numeric := 9223372036854775807;
+BEGIN
 
-  -- Insert trip
-  insert into public.trips (
-    trip_code, vehicle_number, driver_id,
-    driver_name, driver_phone,
-    stage, origin, destination,
-    created_by, assigned_to, status
-  )
-  values (
-    v_trip_code, v_clean_plate, p_driver_id,
-    nullif(trim(coalesce(p_driver_name, '')), ''),
-    nullif(trim(coalesce(p_driver_phone, '')), ''),
-    p_stage::trip_stage,
-    nullif(trim(coalesce(p_origin, '')), ''),
-    nullif(trim(coalesce(p_destination, '')), ''),
-    v_actor_id, p_driver_id, 'submitted'
-  )
-  returning id into v_trip_id;
-
-  -- Audit
-  insert into public.audit_logs (
-    actor_id, action, entity_type, entity_id, trip_id, metadata
-  ) values (
-    v_actor_id, 'trip_dispatched', 'trips', v_trip_id, v_trip_id,
-    jsonb_build_object(
-      'trip_code',       v_trip_code,
-      'vehicle_number',  v_clean_plate,
-      'stage',           p_stage,
-      'driver_id',       p_driver_id,
-      'origin',          p_origin,
-      'destination',     p_destination,
-      'auto_generated',  (p_trip_code is null or length(trim(coalesce(p_trip_code,''))) = 0)
+    SELECT COALESCE(
+        MAX(
+            (
+                pg_catalog.regexp_match(
+                    pg_catalog.upper(t.trip_code),
+                    '^GS-[0-9]{4}-([0-9]+)$'
+                )
+            )[1]::numeric
+        ),
+        100000::numeric
     )
-  );
+    INTO v_max_existing_suffix
+    FROM public.trips AS t
+    WHERE pg_catalog.upper(t.trip_code)
+          ~ '^GS-[0-9]{4}-[0-9]+$';
 
-  return jsonb_build_object(
-    'success',    true,
-    'trip_id',    v_trip_id,
-    'trip_code',  v_trip_code,
-    'vehicle',    v_clean_plate,
-    'stage',      p_stage
-  );
-end;
-$$;
+    SELECT last_value, is_called
+      INTO v_last_value, v_is_called
+      FROM public.trip_code_seq;
 
-comment on function public.admin_dispatch_trip is
-  'Dispatches a new trip with an auto-generated unique trip code. '
-  'Only admin and super_admin roles may call this function. '
-  'If p_trip_code is null or empty, a GS-YYYY-NNNNNN code is auto-generated.';
+    v_actual_next :=
+        CASE
+            WHEN v_is_called
+                THEN v_last_value::numeric + 1
+            ELSE v_last_value::numeric
+        END;
 
--- Grant execute to authenticated users (RLS inside function enforces role check)
-grant execute on function public.admin_dispatch_trip to authenticated;
+    v_required_next :=
+        GREATEST(
+            v_max_existing_suffix + 1,
+            100001::numeric
+        );
 
--- -----------------------------------------------
--- 6. get_driver_profiles() — for admin trip-creation dropdown
--- -----------------------------------------------
-create or replace function public.get_driver_profiles(p_search text default '')
-returns table (
-  id          uuid,
-  full_name   text,
-  email       text,
-  phone       text,
-  district    text
+    IF v_required_next > v_max_bigint THEN
+        RAISE EXCEPTION
+            '[migration-019] Existing trip codes exceed sequence capacity.';
+    END IF;
+
+    IF v_actual_next > v_max_bigint THEN
+        RAISE EXCEPTION
+            '[migration-019] Trip-code sequence has reached maximum capacity.';
+    END IF;
+
+    IF v_actual_next < v_required_next THEN
+        PERFORM pg_catalog.setval(
+            'public.trip_code_seq'::regclass,
+            (v_required_next - 1)::bigint,
+            true
+        );
+    END IF;
+
+END;
+$sequence_sync$;
+
+REVOKE ALL ON SEQUENCE public.trip_code_seq
+FROM PUBLIC, anon, authenticated, service_role;
+
+-- =============================================================
+-- 3. CREATE generate_trip_code()
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.generate_trip_code()
+RETURNS text
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+DECLARE
+    v_year text;
+    v_seq text;
+BEGIN
+
+    v_year := pg_catalog.to_char(
+        pg_catalog.now(),
+        'YYYY'
+    );
+
+    v_seq := pg_catalog.nextval(
+        'public.trip_code_seq'::regclass
+    )::text;
+
+    IF pg_catalog.length(v_seq) < 6 THEN
+        v_seq := pg_catalog.lpad(v_seq, 6, '0');
+    END IF;
+
+    RETURN 'GS-' || v_year || '-' || v_seq;
+
+END;
+$function$;
+
+COMMENT ON FUNCTION public.generate_trip_code() IS
+    'Generates a globally sequenced trip code in GS-YYYY-NNNNNN format.';
+
+REVOKE ALL ON FUNCTION public.generate_trip_code()
+FROM PUBLIC, anon, authenticated, service_role;
+
+-- =============================================================
+-- 4. ADD driver_id COLUMN TO trips
+-- =============================================================
+
+ALTER TABLE public.trips
+    ADD COLUMN IF NOT EXISTS driver_id uuid;
+
+DO $driver_fk$
+BEGIN
+    IF NOT EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conrelid = 'public.trips'::regclass
+          AND conname = 'trips_driver_id_fkey'
+    ) THEN
+        ALTER TABLE public.trips
+            ADD CONSTRAINT trips_driver_id_fkey
+            FOREIGN KEY (driver_id)
+            REFERENCES public.profiles(id)
+            ON DELETE SET NULL;
+    END IF;
+END;
+$driver_fk$;
+
+CREATE INDEX IF NOT EXISTS trips_driver_id_idx
+    ON public.trips(driver_id);
+
+COMMENT ON COLUMN public.trips.driver_id IS
+    'UUID of assigned driver profile. NULL for legacy or unassigned trips.';
+
+-- =============================================================
+-- 5. UPGRADE TO GLOBAL TRIP CODE UNIQUENESS
+-- =============================================================
+
+DO $uniqueness$
+DECLARE
+    v_constraint_definition text;
+BEGIN
+
+    IF EXISTS (
+        SELECT 1
+        FROM pg_constraint
+        WHERE conname = 'trips_trip_code_created_by_key'
+          AND conrelid = 'public.trips'::regclass
+    ) THEN
+        ALTER TABLE public.trips
+            DROP CONSTRAINT trips_trip_code_created_by_key;
+        RAISE NOTICE
+            '[migration-019] Removed per-creator trip-code constraint.';
+    END IF;
+
+    SELECT pg_catalog.pg_get_constraintdef(oid)
+    INTO v_constraint_definition
+    FROM pg_constraint
+    WHERE conname = 'trips_trip_code_unique'
+      AND conrelid = 'public.trips'::regclass;
+
+    IF FOUND THEN
+        IF v_constraint_definition <> 'UNIQUE (trip_code)' THEN
+            RAISE EXCEPTION
+                '[migration-019] Existing trips_trip_code_unique constraint has unexpected definition: %',
+                v_constraint_definition;
+        END IF;
+        RAISE NOTICE
+            '[migration-019] Global trip-code uniqueness already exists.';
+    ELSE
+        ALTER TABLE public.trips
+            ADD CONSTRAINT trips_trip_code_unique
+            UNIQUE (trip_code);
+        RAISE NOTICE
+            '[migration-019] Global trip-code uniqueness created.';
+    END IF;
+
+END;
+$uniqueness$;
+
+-- =============================================================
+-- 6. CREATE admin_dispatch_trip()
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.admin_dispatch_trip(
+    p_vehicle_number text,
+    p_driver_id uuid DEFAULT NULL,
+    p_driver_name text DEFAULT NULL,
+    p_driver_phone text DEFAULT NULL,
+    p_stage text DEFAULT 'first_mile',
+    p_origin text DEFAULT NULL,
+    p_destination text DEFAULT NULL,
+    p_trip_code text DEFAULT NULL
 )
-language sql
-security definer
-set search_path = public
-stable
-as $$
-  select id, full_name, email, phone, district
-    from public.profiles
-   where role = 'user'
-     and (
-       p_search = ''
-       or full_name ilike '%' || p_search || '%'
-       or email     ilike '%' || p_search || '%'
-       or phone     ilike '%' || p_search || '%'
-     )
-   order by full_name asc nulls last
-   limit 50;
-$$;
+RETURNS jsonb
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
 
-grant execute on function public.get_driver_profiles to authenticated;
+DECLARE
 
-comment on function public.get_driver_profiles is
-  'Returns up to 50 user-role profiles for the admin trip-creation driver dropdown.';
+    v_actor_id uuid;
+    v_actor_role public.user_role;
+
+    v_trip_code text;
+    v_trip_id uuid;
+
+    v_clean_plate text;
+
+    v_driver_name text;
+    v_driver_phone text;
+
+    v_auto_generated boolean;
+    v_constraint_name text;
+
+BEGIN
+
+    v_actor_id := auth.uid();
+
+    IF v_actor_id IS NULL THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Not authenticated'
+        );
+    END IF;
+
+    SELECT p.role
+    INTO v_actor_role
+    FROM public.profiles AS p
+    WHERE p.id = v_actor_id;
+
+    IF v_actor_role IS NULL
+       OR v_actor_role NOT IN ('admin', 'super_admin') THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Only administrators can dispatch trips'
+        );
+    END IF;
+
+    v_clean_plate :=
+        pg_catalog.regexp_replace(
+            pg_catalog.upper(COALESCE(p_vehicle_number, '')),
+            '[^A-Z0-9]', '', 'g'
+        );
+
+    IF v_clean_plate IS NULL
+       OR pg_catalog.length(v_clean_plate) < 5 THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Invalid vehicle registration number'
+        );
+    END IF;
+
+    IF p_stage IS NULL
+       OR p_stage NOT IN ('first_mile', 'mid_mile', 'last_mile') THEN
+        RETURN jsonb_build_object(
+            'success', false,
+            'error', 'Invalid stage value'
+        );
+    END IF;
+
+    IF p_driver_id IS NOT NULL THEN
+        SELECT p.full_name, p.phone
+        INTO v_driver_name, v_driver_phone
+        FROM public.profiles AS p
+        WHERE p.id = p_driver_id
+          AND p.role = 'user';
+
+        IF NOT FOUND THEN
+            RETURN jsonb_build_object(
+                'success', false,
+                'error', 'Selected driver does not exist or is not an eligible user'
+            );
+        END IF;
+    ELSE
+        v_driver_name :=
+            NULLIF(pg_catalog.btrim(COALESCE(p_driver_name, '')), '');
+        v_driver_phone :=
+            NULLIF(pg_catalog.btrim(COALESCE(p_driver_phone, '')), '');
+    END IF;
+
+    v_auto_generated :=
+        (p_trip_code IS NULL
+         OR pg_catalog.length(pg_catalog.btrim(p_trip_code)) = 0);
+
+    IF v_auto_generated THEN
+        v_trip_code := public.generate_trip_code();
+    ELSE
+        v_trip_code := pg_catalog.btrim(p_trip_code);
+
+        IF EXISTS (
+            SELECT 1 FROM public.trips AS t
+            WHERE t.trip_code = v_trip_code
+        ) THEN
+            RETURN jsonb_build_object(
+                'success', false,
+                'error',
+                pg_catalog.format(
+                    'Trip code %s already exists. Leave blank for auto-generation.',
+                    v_trip_code
+                )
+            );
+        END IF;
+    END IF;
+
+    BEGIN
+
+        INSERT INTO public.trips (
+            trip_code, vehicle_number, driver_id,
+            driver_name, driver_phone,
+            stage, origin, destination,
+            created_by, assigned_to, status
+        )
+        VALUES (
+            v_trip_code, v_clean_plate, p_driver_id,
+            v_driver_name, v_driver_phone,
+            p_stage::public.trip_stage,
+            NULLIF(pg_catalog.btrim(COALESCE(p_origin, '')), ''),
+            NULLIF(pg_catalog.btrim(COALESCE(p_destination, '')), ''),
+            v_actor_id, p_driver_id, 'submitted'
+        )
+        RETURNING id INTO v_trip_id;
+
+    EXCEPTION
+        WHEN unique_violation THEN
+            GET STACKED DIAGNOSTICS
+                v_constraint_name = CONSTRAINT_NAME;
+
+            IF v_constraint_name = 'trips_trip_code_unique' THEN
+                RETURN jsonb_build_object(
+                    'success', false,
+                    'error',
+                    pg_catalog.format(
+                        'Trip code %s was just claimed by another request. Please retry.',
+                        v_trip_code
+                    )
+                );
+            END IF;
+
+            RAISE;
+    END;
+
+    INSERT INTO public.audit_logs (
+        actor_id, action, entity_type, entity_id, trip_id, metadata
+    )
+    VALUES (
+        v_actor_id,
+        'trip_dispatched',
+        'trips',
+        v_trip_id,
+        v_trip_id,
+        jsonb_build_object(
+            'trip_code', v_trip_code,
+            'vehicle_number', v_clean_plate,
+            'stage', p_stage,
+            'driver_id', p_driver_id,
+            'origin', p_origin,
+            'destination', p_destination,
+            'auto_generated', v_auto_generated
+        )
+    );
+
+    RETURN jsonb_build_object(
+        'success', true,
+        'trip_id', v_trip_id,
+        'trip_code', v_trip_code,
+        'vehicle', v_clean_plate,
+        'stage', p_stage,
+        'driver_id', p_driver_id,
+        'auto_generated', v_auto_generated
+    );
+
+END;
+
+$function$;
+
+COMMENT ON FUNCTION public.admin_dispatch_trip(
+    text, uuid, text, text, text, text, text, text
+) IS
+    'Creates a new trip with a globally unique auto-generated trip code. '
+    'Only admin and super_admin roles may dispatch trips.';
+
+REVOKE ALL ON FUNCTION public.admin_dispatch_trip(
+    text, uuid, text, text, text, text, text, text
+)
+FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION public.admin_dispatch_trip(
+    text, uuid, text, text, text, text, text, text
+)
+TO authenticated;
+
+-- =============================================================
+-- 7. CREATE get_driver_profiles()
+-- =============================================================
+
+CREATE OR REPLACE FUNCTION public.get_driver_profiles(
+    p_search text DEFAULT ''
+)
+RETURNS TABLE (
+    id uuid,
+    full_name text,
+    email text,
+    phone text,
+    district text
+)
+LANGUAGE sql
+STABLE
+SECURITY DEFINER
+SET search_path = ''
+AS $function$
+
+    SELECT
+        p.id,
+        p.full_name,
+        p.email,
+        p.phone,
+        p.district
+
+    FROM public.profiles AS p
+
+    WHERE p.role = 'user'
+
+      AND EXISTS (
+          SELECT 1
+          FROM public.profiles AS actor
+          WHERE actor.id = auth.uid()
+            AND actor.role IN ('admin', 'super_admin')
+      )
+
+      AND (
+          pg_catalog.btrim(COALESCE(p_search, '')) = ''
+          OR p.full_name ILIKE
+              '%' || pg_catalog.btrim(COALESCE(p_search, '')) || '%'
+          OR p.email ILIKE
+              '%' || pg_catalog.btrim(COALESCE(p_search, '')) || '%'
+          OR p.phone ILIKE
+              '%' || pg_catalog.btrim(COALESCE(p_search, '')) || '%'
+      )
+
+    ORDER BY p.full_name ASC NULLS LAST
+
+    LIMIT 50;
+
+$function$;
+
+COMMENT ON FUNCTION public.get_driver_profiles(text) IS
+    'Returns up to 50 user-role profiles for the admin trip-creation '
+    'driver dropdown. Only administrator roles can retrieve records.';
+
+REVOKE ALL ON FUNCTION public.get_driver_profiles(text)
+FROM PUBLIC, anon, authenticated, service_role;
+
+GRANT EXECUTE ON FUNCTION public.get_driver_profiles(text)
+TO authenticated;
+
+-- =============================================================
+-- 8. COMMIT
+-- =============================================================
+
+COMMIT;
+
+-- =============================================================
+-- MIGRATION 019 COMPLETE
+-- =============================================================
