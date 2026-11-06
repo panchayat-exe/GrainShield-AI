@@ -39,6 +39,9 @@ interface LeafletMapWrapper {
   map: L.Map;
   L: typeof L;
   vehicleMarker?: L.Marker | null;
+  originMarker?: L.Marker | null;
+  destinationMarker?: L.Marker | null;
+  routeLine?: L.Polyline | null;
 }
 
 /** Real Leaflet map showing trip origin → vehicle location → destination */
@@ -78,40 +81,116 @@ function TripMap({ trip, location }: { trip: Trip | null; location: TripLocation
     };
   }, []);
 
-  // Update marker when location changes
+  // Update markers and route corridor when location or trip changes
   useEffect(() => {
-    if (!mapInstanceRef.current || !location) return;
+    if (!mapInstanceRef.current) return;
     const { map, L } = mapInstanceRef.current;
 
-    // Remove previous vehicle marker
-    if (mapInstanceRef.current.vehicleMarker) {
-      mapInstanceRef.current.vehicleMarker.remove();
-    }
-
-    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
-      <path d="M14 0C6.27 0 0 6.27 0 14c0 9.33 14 22 14 22S28 23.33 28 14C28 6.27 21.73 0 14 0z" fill="#3b82f6" stroke="white" stroke-width="2"/>
-      <circle cx="14" cy="14" r="6" fill="white"/>
-    </svg>`;
-
-    const icon = L.divIcon({ html: svg, iconSize: [28, 36], iconAnchor: [14, 36], className: "" });
-    const marker = L.marker([location.latitude, location.longitude], { icon })
-      .addTo(map)
-      .bindPopup(`<b>${trip?.trip_code ?? "Vehicle"}</b><br/>${trip?.vehicle_number ?? ""}`);
-
-    mapInstanceRef.current.vehicleMarker = marker;
-    map.setView([location.latitude, location.longitude], 12, { animate: true });
-  }, [location, trip]);
-
-  // Reset to Gujarat center when no trip
-  useEffect(() => {
-    if (!mapInstanceRef.current || trip) return;
-    const { map } = mapInstanceRef.current;
+    // Remove existing markers & lines
     if (mapInstanceRef.current.vehicleMarker) {
       mapInstanceRef.current.vehicleMarker.remove();
       mapInstanceRef.current.vehicleMarker = null;
     }
-    map.setView(GUJARAT_CENTER, 7, { animate: true });
-  }, [trip]);
+    if (mapInstanceRef.current.originMarker) {
+      mapInstanceRef.current.originMarker.remove();
+      mapInstanceRef.current.originMarker = null;
+    }
+    if (mapInstanceRef.current.destinationMarker) {
+      mapInstanceRef.current.destinationMarker.remove();
+      mapInstanceRef.current.destinationMarker = null;
+    }
+    if (mapInstanceRef.current.routeLine) {
+      mapInstanceRef.current.routeLine.remove();
+      mapInstanceRef.current.routeLine = null;
+    }
+
+    if (!trip && !location) {
+      map.setView(GUJARAT_CENTER, 7, { animate: true });
+      return;
+    }
+
+    const bounds: [number, number][] = [];
+
+    // 1. Origin Marker
+    if (trip?.origin_lat != null && trip?.origin_lng != null) {
+      const originSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+        <rect x="1" y="1" width="20" height="20" rx="4" fill="#16a34a" stroke="white" stroke-width="2"/>
+        <text x="11" y="15" text-anchor="middle" font-size="11" fill="white" font-weight="bold">O</text>
+      </svg>`;
+      const oIcon = L.divIcon({
+        html: originSvg,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        className: "",
+      });
+      const oMarker = L.marker([trip.origin_lat, trip.origin_lng], { icon: oIcon })
+        .addTo(map)
+        .bindPopup(`<b>Origin (Mandi)</b><br/>${trip.origin ?? ""}`);
+      mapInstanceRef.current.originMarker = oMarker;
+      bounds.push([trip.origin_lat, trip.origin_lng]);
+    }
+
+    // 2. Destination Marker
+    if (trip?.destination_lat != null && trip?.destination_lng != null) {
+      const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+        <rect x="1" y="1" width="20" height="20" rx="4" fill="#dc2626" stroke="white" stroke-width="2"/>
+        <text x="11" y="15" text-anchor="middle" font-size="11" fill="white" font-weight="bold">D</text>
+      </svg>`;
+      const dIcon = L.divIcon({
+        html: destSvg,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        className: "",
+      });
+      const dMarker = L.marker([trip.destination_lat, trip.destination_lng], { icon: dIcon })
+        .addTo(map)
+        .bindPopup(`<b>Destination (Godown / FPS)</b><br/>${trip.destination ?? ""}`);
+      mapInstanceRef.current.destinationMarker = dMarker;
+      bounds.push([trip.destination_lat, trip.destination_lng]);
+    }
+
+    // 3. Vehicle Live Location Marker
+    if (location) {
+      const vSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+        <path d="M14 0C6.27 0 0 6.27 0 14c0 9.33 14 22 14 22S28 23.33 28 14C28 6.27 21.73 0 14 0z" fill="#3b82f6" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="6" fill="white"/>
+      </svg>`;
+      const icon = L.divIcon({
+        html: vSvg,
+        iconSize: [28, 36],
+        iconAnchor: [14, 36],
+        className: "",
+      });
+      const marker = L.marker([location.latitude, location.longitude], { icon })
+        .addTo(map)
+        .bindPopup(`<b>${trip?.trip_code ?? "Vehicle"}</b><br/>${trip?.vehicle_number ?? ""}`);
+      mapInstanceRef.current.vehicleMarker = marker;
+      bounds.push([location.latitude, location.longitude]);
+    }
+
+    // 4. Planned corridor line if both coordinates exist
+    if (
+      trip?.origin_lat != null &&
+      trip?.origin_lng != null &&
+      trip?.destination_lat != null &&
+      trip?.destination_lng != null
+    ) {
+      const line = L.polyline(
+        [
+          [trip.origin_lat, trip.origin_lng],
+          [trip.destination_lat, trip.destination_lng],
+        ],
+        { color: "#3b82f6", weight: 2, dashArray: "5 5", opacity: 0.7 },
+      ).addTo(map);
+      mapInstanceRef.current.routeLine = line;
+    }
+
+    if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    } else if (bounds.length === 1 && bounds[0]) {
+      map.setView(bounds[0], 12, { animate: true });
+    }
+  }, [location, trip]);
 
   return (
     <div className="relative overflow-hidden rounded-2xl border border-border">

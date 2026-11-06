@@ -15,18 +15,9 @@ export type TripStatus =
   | "rejected"
   | "completed";
 export type VerificationStatus =
-  | "pending"
-  | "processing"
-  | "pass"
-  | "retake"
-  | "manual_review"
-  | "error";
+  "pending" | "processing" | "pass" | "retake" | "manual_review" | "error";
 export type ReviewStatus =
-  | "pending"
-  | "assigned"
-  | "in_review"
-  | "resolved"
-  | "escalated";
+  "pending" | "assigned" | "in_review" | "resolved" | "escalated";
 
 export interface Profile {
   id: string;
@@ -36,6 +27,7 @@ export interface Profile {
   district: string | null;
   organization_id: string | null;
   role: UserRole;
+  push_token?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -46,17 +38,17 @@ export interface Trip {
   vehicle_number: string;
   driver_name?: string | null;
   driver_phone?: string | null;
-  driver_id?: string | null;      // added in migration 019
-  vehicle_id?: string | null;     // added in migration 022/023
+  driver_id?: string | null; // added in migration 019
+  vehicle_id?: string | null; // added in migration 022/023
   stage: TripStage;
   origin?: string | null;
   destination?: string | null;
-  origin_lat?: number | null;     // added in migration 025
-  origin_lng?: number | null;     // added in migration 025
+  origin_lat?: number | null; // added in migration 025
+  origin_lng?: number | null; // added in migration 025
   destination_lat?: number | null; // added in migration 025
   destination_lng?: number | null; // added in migration 025
-  commodity?: string | null;      // added in migration 025
-  quantity_kg?: number | null;    // added in migration 025
+  commodity?: string | null; // added in migration 025
+  quantity_kg?: number | null; // added in migration 025
   vehicle_category?: string | null; // added in migration 014
   created_by: string;
   assigned_to?: string | null;
@@ -71,6 +63,7 @@ export interface TripEvidence {
   trip_id: string;
   uploaded_by: string;
   stage: TripStage;
+  checkpoint_number?: number | null;
   storage_path: string;
   original_filename: string;
   mime_type: string;

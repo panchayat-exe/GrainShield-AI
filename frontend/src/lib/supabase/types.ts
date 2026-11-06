@@ -29,6 +29,7 @@ export interface Profile {
   district: string | null;
   organization_id: string | null;
   role: UserRole;
+  push_token?: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -39,9 +40,21 @@ export interface Trip {
   vehicle_number: string;
   driver_name?: string | null;
   driver_phone?: string | null;
+  driver_id?: string | null;
+  vehicle_id?: string | null;
   stage: TripStage;
   origin?: string | null;
   destination?: string | null;
+  origin_lat?: number | null;
+  origin_lng?: number | null;
+  destination_lat?: number | null;
+  destination_lng?: number | null;
+  commodity?: string | null;
+  quantity_kg?: number | null;
+  vehicle_category?: string | null;
+  origin_org_id?: string | null;
+  destination_org_id?: string | null;
+  fps_shop_id?: string | null;
   created_by: string;
   assigned_to?: string | null;
   organization_id?: string | null;
@@ -55,6 +68,7 @@ export interface TripEvidence {
   trip_id: string;
   uploaded_by: string;
   stage: TripStage;
+  checkpoint_number?: number | null;
   storage_path: string;
   original_filename: string;
   mime_type: string;

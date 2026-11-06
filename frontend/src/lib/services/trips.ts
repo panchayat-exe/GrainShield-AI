@@ -21,6 +21,10 @@ export async function createCitizenTrip(params: {
   stage: TripStage;
   origin?: string;
   destination?: string;
+  originLat?: number | null;
+  originLng?: number | null;
+  destinationLat?: number | null;
+  destinationLng?: number | null;
   commodity?: string;
   quantityKg?: number | null;
 }): Promise<{ tripId: string; tripCode: string; error: string | null }> {
@@ -29,10 +33,10 @@ export async function createCitizenTrip(params: {
     p_stage: params.stage,
     p_origin: params.origin?.trim() ?? null,
     p_destination: params.destination?.trim() ?? null,
-    p_origin_lat: null,
-    p_origin_lng: null,
-    p_destination_lat: null,
-    p_destination_lng: null,
+    p_origin_lat: params.originLat ?? null,
+    p_origin_lng: params.originLng ?? null,
+    p_destination_lat: params.destinationLat ?? null,
+    p_destination_lng: params.destinationLng ?? null,
     p_commodity: params.commodity?.trim() ?? null,
     p_quantity_kg: params.quantityKg ?? null,
   });

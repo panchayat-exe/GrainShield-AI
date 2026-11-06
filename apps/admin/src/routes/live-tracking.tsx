@@ -111,6 +111,62 @@ function TripCard({
  * LeafletMap — renders real OpenStreetMap tiles with vehicle markers.
  * Dynamically re-renders markers when locations state updates via Realtime.
  */
+
+/**
+ * Fetches real road routing polyline from OSRM (Open Source Routing Machine).
+ * Falls back to straight direct corridor if OSRM is unreachable or timed out.
+ */
+async function fetchPlannedRoadRoute(
+  originLat: number,
+  originLng: number,
+  destLat: number,
+  destLng: number,
+): Promise<{ coordinates: [number, number][]; isRealRoad: boolean }> {
+  try {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 4000);
+    const url = `https://router.project-osrm.org/route/v1/driving/${originLng},${originLat};${destLng},${destLat}?overview=full&geometries=geojson`;
+    const res = await fetch(url, { signal: controller.signal });
+    clearTimeout(timeout);
+    if (!res.ok) throw new Error("OSRM routing returned " + res.status);
+    const json = await res.json();
+    if (json.routes && json.routes[0]?.geometry?.coordinates) {
+      // GeoJSON returns [lng, lat], Leaflet expects [lat, lng]
+      const coords = json.routes[0].geometry.coordinates.map(
+        (c: [number, number]) => [c[1], c[0]] as [number, number],
+      );
+      return { coordinates: coords, isRealRoad: true };
+    }
+  } catch (err) {
+    console.warn("[live-tracking] OSRM road routing fallback:", err);
+  }
+  return {
+    coordinates: [
+      [originLat, originLng],
+      [destLat, destLng],
+    ],
+    isRealRoad: false,
+  };
+}
+
+/**
+ * Fetches the actual historical GPS track recorded for a trip.
+ */
+async function fetchActualGpsTrack(tripId: string): Promise<[number, number][]> {
+  try {
+    const { data } = await supabase
+      .from("trip_locations")
+      .select("latitude, longitude")
+      .eq("trip_id", tripId)
+      .order("recorded_at", { ascending: true })
+      .limit(200);
+    if (!data) return [];
+    return data.map((d) => [d.latitude, d.longitude] as [number, number]);
+  } catch {
+    return [];
+  }
+}
+
 function LeafletMap({
   locations,
   selectedId,
@@ -123,7 +179,10 @@ function LeafletMap({
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<LeafletMapWrapper | null>(null);
   const markersRef = useRef<Record<string, Leaflet.Marker>>({});
-  const pinMarkersRef = useRef<Leaflet.Marker[]>([]);
+  const pinMarkersRef = useRef<Leaflet.Layer[]>([]);
+  const plannedRouteLineRef = useRef<Leaflet.Polyline | null>(null);
+  const actualRouteLineRef = useRef<Leaflet.Polyline | null>(null);
+  const [routeInfo, setRouteInfo] = useState<{ isRealRoad: boolean } | null>(null);
 
   const GUJARAT_CENTER: [number, number] = [22.309, 72.136];
 
@@ -165,22 +224,28 @@ function LeafletMap({
       markersRef.current[loc.tripId] = marker;
     });
 
-    // ── Origin / Destination pins ───────────────────────────────────────────
+    // ── Origin / Destination / Checkpoints Pins ─────────────────────────────
     locs.forEach((loc) => {
-      const originSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
-        <rect x="1" y="1" width="18" height="18" rx="3" fill="#16a34a" stroke="white" stroke-width="1.5"/>
-        <text x="10" y="14" text-anchor="middle" font-size="10" fill="white" font-weight="bold">O</text>
+      const originSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+        <rect x="1" y="1" width="20" height="20" rx="4" fill="#16a34a" stroke="white" stroke-width="2"/>
+        <text x="11" y="15" text-anchor="middle" font-size="11" fill="white" font-weight="bold">O</text>
       </svg>`;
-      const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
-        <rect x="1" y="1" width="18" height="18" rx="3" fill="#dc2626" stroke="white" stroke-width="1.5"/>
-        <text x="10" y="14" text-anchor="middle" font-size="10" fill="white" font-weight="bold">D</text>
+      const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+        <rect x="1" y="1" width="20" height="20" rx="4" fill="#dc2626" stroke="white" stroke-width="2"/>
+        <text x="11" y="15" text-anchor="middle" font-size="11" fill="white" font-weight="bold">D</text>
+      </svg>`;
+      const cpSvg = (
+        n: number,
+      ) => `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <circle cx="10" cy="10" r="9" fill="#7c3aed" stroke="white" stroke-width="2"/>
+        <text x="10" y="14" text-anchor="middle" font-size="9" fill="white" font-weight="bold">C${n}</text>
       </svg>`;
 
       if (loc.originLat != null && loc.originLng != null) {
         const originIcon = L.divIcon({
           html: originSvg,
-          iconSize: [20, 20],
-          iconAnchor: [10, 10],
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
           className: "",
         });
         const originMarker = L.marker([loc.originLat, loc.originLng], { icon: originIcon })
@@ -194,8 +259,8 @@ function LeafletMap({
       if (loc.destinationLat != null && loc.destinationLng != null) {
         const destIcon = L.divIcon({
           html: destSvg,
-          iconSize: [20, 20],
-          iconAnchor: [10, 10],
+          iconSize: [22, 22],
+          iconAnchor: [11, 11],
           className: "",
         });
         const destMarker = L.marker([loc.destinationLat, loc.destinationLng], { icon: destIcon })
@@ -204,18 +269,24 @@ function LeafletMap({
             `<div style="font-size:12px"><b>Destination</b><br/>${loc.tripCode}<br/>${loc.destination ?? ""}</div>`,
           );
         pinMarkersRef.current.push(destMarker);
+      }
 
-        // Draw a dashed polyline from origin to destination if both exist
-        if (loc.originLat != null && loc.originLng != null) {
-          const line = L.polyline(
-            [
-              [loc.originLat, loc.originLng],
-              [loc.destinationLat, loc.destinationLng],
-            ],
-            { color: "#94a3b8", weight: 1.5, dashArray: "6 4", opacity: 0.6 },
-          ).addTo(map);
-          pinMarkersRef.current.push(line as unknown as Leaflet.Marker);
-        }
+      // Checkpoint virtual markers if midway
+      if (loc.originLat != null && loc.destinationLat != null) {
+        const cp1Lat = loc.originLat + (loc.destinationLat - loc.originLat) * 0.33;
+        const cp1Lng = loc.originLng! + (loc.destinationLng! - loc.originLng!) * 0.33;
+        const cpIcon = L.divIcon({
+          html: cpSvg(1),
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+          className: "",
+        });
+        const cpMarker = L.marker([cp1Lat, cp1Lng], { icon: cpIcon })
+          .addTo(map)
+          .bindPopup(
+            `<div style="font-size:12px"><b>Transit Checkpoint (CP2)</b><br/>${loc.tripCode}</div>`,
+          );
+        pinMarkersRef.current.push(cpMarker);
       }
     });
   }
@@ -279,17 +350,110 @@ function LeafletMap({
     }
   }, [locations, onSelect]);
 
-  // Pan to selected marker
+  // Pan to selected marker and draw Planned Route vs Actual GPS Route
   useEffect(() => {
-    if (!mapInstanceRef.current || !selectedId) return;
+    if (!mapInstanceRef.current) return;
+    const { map, L } = mapInstanceRef.current;
+
+    // Clean up previous route lines
+    if (plannedRouteLineRef.current) {
+      plannedRouteLineRef.current.remove();
+      plannedRouteLineRef.current = null;
+    }
+    if (actualRouteLineRef.current) {
+      actualRouteLineRef.current.remove();
+      actualRouteLineRef.current = null;
+    }
+    setRouteInfo(null);
+
+    if (!selectedId) return;
+
+    const loc = locations.find((l) => l.tripId === selectedId);
+    if (!loc) return;
+
     const marker = markersRef.current[selectedId];
     if (marker) {
-      mapInstanceRef.current.map.panTo(marker.getLatLng(), { animate: true });
       marker.openPopup();
     }
-  }, [selectedId]);
 
-  return <div ref={mapRef} className="h-[560px] w-full rounded-lg border border-border" />;
+    // 1. Draw Planned Route (Real Road from OSRM or clearly labelled corridor)
+    if (
+      loc.originLat != null &&
+      loc.originLng != null &&
+      loc.destinationLat != null &&
+      loc.destinationLng != null
+    ) {
+      fetchPlannedRoadRoute(
+        loc.originLat,
+        loc.originLng,
+        loc.destinationLat,
+        loc.destinationLng,
+      ).then((res) => {
+        if (!mapInstanceRef.current) return;
+        setRouteInfo({ isRealRoad: res.isRealRoad });
+        const line = L.polyline(res.coordinates, {
+          color: res.isRealRoad ? "#2563eb" : "#64748b",
+          weight: 3.5,
+          dashArray: res.isRealRoad ? "6, 6" : "3, 6",
+          opacity: 0.85,
+        }).addTo(map);
+        plannedRouteLineRef.current = line;
+      });
+    }
+
+    // 2. Draw Actual Traveled Route from recorded GPS telemetry
+    fetchActualGpsTrack(selectedId).then((gpsPoints) => {
+      if (!mapInstanceRef.current || gpsPoints.length < 2) return;
+      const actualLine = L.polyline(gpsPoints, {
+        color: "#059669", // emerald
+        weight: 4.5,
+        opacity: 0.95,
+      }).addTo(map);
+      actualRouteLineRef.current = actualLine;
+    });
+
+    if (marker) {
+      mapInstanceRef.current.map.panTo(marker.getLatLng(), { animate: true });
+    }
+  }, [selectedId, locations]);
+
+  return (
+    <div className="relative">
+      <div ref={mapRef} className="h-[560px] w-full rounded-lg border border-border" />
+      {/* Route & Telemetry Legend */}
+      <div className="absolute bottom-3 left-3 z-[1000] rounded-md border border-border/80 bg-card/95 p-2.5 text-xs shadow-md backdrop-blur-sm">
+        <div className="font-semibold text-foreground mb-1">Route & Telemetry Legend</div>
+        <div className="space-y-1 text-muted-foreground">
+          <div className="flex items-center gap-2">
+            <span className="h-2 w-5 rounded bg-emerald-600"></span>
+            <span>Actual GPS Traveled Route</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="h-0.5 w-5 border-t-2 border-dashed border-blue-600"></span>
+            <span>
+              Planned Road Route{" "}
+              {routeInfo
+                ? routeInfo.isRealRoad
+                  ? "(OSRM Verified Road)"
+                  : "(Direct Corridor)"
+                : ""}
+            </span>
+          </div>
+          <div className="flex items-center gap-3 pt-0.5 text-[11px]">
+            <span>
+              <strong className="text-emerald-600">O</strong> Origin
+            </span>
+            <span>
+              <strong className="text-purple-600">CP</strong> Checkpoints
+            </span>
+            <span>
+              <strong className="text-rose-600">D</strong> Destination
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
 }
 
 function Live() {

@@ -1,6 +1,15 @@
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { useRef, useState } from "react";
-import { ImageUp, TriangleAlert, Loader2, AlertCircle, CheckCircle2, Ticket } from "lucide-react";
+import {
+  ImageUp,
+  TriangleAlert,
+  Loader2,
+  AlertCircle,
+  CheckCircle2,
+  Ticket,
+  MapPin,
+  Navigation,
+} from "lucide-react";
 import { AppShell, Card, btn } from "@/components/AppShell";
 import { useAuth } from "@/hooks/use-auth";
 import { createCitizenTrip } from "@/lib/services/trips";
@@ -41,7 +50,12 @@ function Upload() {
   const [vehicleNumber, setVehicleNumber] = useState("");
   const [stage, setStage] = useState<TripStage | "">("");
   const [origin, setOrigin] = useState("");
+  const [originLat, setOriginLat] = useState<number | null>(null);
+  const [originLng, setOriginLng] = useState<number | null>(null);
   const [destination, setDestination] = useState("");
+  const [destinationLat, setDestinationLat] = useState<number | null>(null);
+  const [destinationLng, setDestinationLng] = useState<number | null>(null);
+  const [locatingOrigin, setLocatingOrigin] = useState(false);
   const [commodity, setCommodity] = useState("");
   const [file, setFile] = useState<File | null>(null);
   const [preview, setPreview] = useState<string | null>(null);
@@ -84,7 +98,11 @@ function Upload() {
     setVehicleNumber("");
     setStage("");
     setOrigin("");
+    setOriginLat(null);
+    setOriginLng(null);
     setDestination("");
+    setDestinationLat(null);
+    setDestinationLng(null);
     setCommodity("");
     setFile(null);
     setPreview(null);
@@ -158,6 +176,10 @@ function Upload() {
       };
       if (parsed.data!.origin) citizenParams.origin = parsed.data!.origin;
       if (parsed.data!.destination) citizenParams.destination = parsed.data!.destination;
+      if (originLat != null) citizenParams.originLat = originLat;
+      if (originLng != null) citizenParams.originLng = originLng;
+      if (destinationLat != null) citizenParams.destinationLat = destinationLat;
+      if (destinationLng != null) citizenParams.destinationLng = destinationLng;
       if (parsed.data!.commodity) citizenParams.commodity = parsed.data!.commodity;
       const { tripId, tripCode, error: tripError } = await createCitizenTrip(citizenParams);
 
@@ -361,35 +383,132 @@ function Upload() {
             )}
           </label>
 
-          {/* Origin (optional) */}
-          <label className="block text-sm font-medium" htmlFor="origin">
-            Origin
-            <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
+          {/* Origin with Location & GPS Coordinate Detection */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between">
+              <label className="block text-sm font-medium" htmlFor="origin">
+                Origin{" "}
+                <span className="text-xs font-normal text-muted-foreground">(Mandi / Godown)</span>
+              </label>
+              <button
+                type="button"
+                onClick={() => {
+                  if (typeof navigator === "undefined" || !navigator.geolocation) {
+                    setError("Geolocation is not supported by your browser.");
+                    return;
+                  }
+                  setLocatingOrigin(true);
+                  navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                      const lat = parseFloat(pos.coords.latitude.toFixed(6));
+                      const lng = parseFloat(pos.coords.longitude.toFixed(6));
+                      setOriginLat(lat);
+                      setOriginLng(lng);
+                      if (!origin) {
+                        setOrigin(`Current Field Location (${lat}, ${lng})`);
+                      }
+                      setLocatingOrigin(false);
+                    },
+                    (err) => {
+                      setLocatingOrigin(false);
+                      setError(`Could not detect location: ${err.message}`);
+                    },
+                    { enableHighAccuracy: true, timeout: 10000 },
+                  );
+                }}
+                disabled={submitting || locatingOrigin}
+                className="inline-flex items-center gap-1 text-xs font-medium text-info hover:underline disabled:opacity-50"
+              >
+                <Navigation className="h-3.5 w-3.5" />
+                {locatingOrigin ? "Locating…" : "Use Current GPS"}
+              </button>
+            </div>
             <input
               id="origin"
               className={`${input} mt-1`}
-              placeholder="e.g. Ahmedabad FCI Godown"
+              placeholder="e.g. FCI Godown, Sabarmati, Ahmedabad"
               value={origin}
-              aria-label="Trip origin location (optional)"
+              aria-label="Trip origin location"
               onChange={(e) => setOrigin(e.target.value)}
               disabled={submitting}
             />
-          </label>
+            {/* Quick origin hub selection */}
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {[
+                { name: "Ahmedabad FCI", lat: 23.0812, lng: 72.585 },
+                { name: "Jamalpur Mandi", lat: 23.0135, lng: 72.5855 },
+                { name: "Gandhinagar Depot", lat: 23.2156, lng: 72.6369 },
+                { name: "Surat APMC", lat: 21.1702, lng: 72.8311 },
+                { name: "Vadodara GSCSCL", lat: 22.3072, lng: 73.1812 },
+              ].map((hub) => (
+                <button
+                  key={hub.name}
+                  type="button"
+                  onClick={() => {
+                    setOrigin(`${hub.name} (${hub.lat}, ${hub.lng})`);
+                    setOriginLat(hub.lat);
+                    setOriginLng(hub.lng);
+                  }}
+                  className="rounded-md border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-info hover:text-foreground"
+                >
+                  📍 {hub.name}
+                </button>
+              ))}
+            </div>
+            {originLat != null && originLng != null && (
+              <p className="flex items-center gap-1 text-[11px] text-success">
+                <MapPin className="h-3 w-3" /> GPS Coordinates attached: {originLat}, {originLng}
+              </p>
+            )}
+          </div>
 
-          {/* Destination (optional) */}
-          <label className="block text-sm font-medium" htmlFor="destination">
-            Destination
-            <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
+          {/* Destination Selection */}
+          <div className="space-y-1.5 pt-1">
+            <label className="block text-sm font-medium" htmlFor="destination">
+              Destination{" "}
+              <span className="text-xs font-normal text-muted-foreground">
+                (Godown / Fair Price Shop)
+              </span>
+            </label>
             <input
               id="destination"
               className={`${input} mt-1`}
-              placeholder="e.g. Gandhinagar FPS-01"
+              placeholder="e.g. Fair Price Shop #104, Gandhinagar"
               value={destination}
-              aria-label="Trip destination location (optional)"
+              aria-label="Trip destination location"
               onChange={(e) => setDestination(e.target.value)}
               disabled={submitting}
             />
-          </label>
+            {/* Quick destination presets */}
+            <div className="flex flex-wrap gap-1.5 pt-1">
+              {[
+                { name: "Gandhinagar FPS-104", lat: 23.227, lng: 72.648 },
+                { name: "Naroda FPS-42", lat: 23.0674, lng: 72.6582 },
+                { name: "Surat FPS-18", lat: 21.1557, lng: 72.8428 },
+                { name: "Sanand Sub-Depot", lat: 22.9912, lng: 72.3814 },
+                { name: "Gotri FPS-88", lat: 22.316, lng: 73.152 },
+              ].map((dest) => (
+                <button
+                  key={dest.name}
+                  type="button"
+                  onClick={() => {
+                    setDestination(`${dest.name} (${dest.lat}, ${dest.lng})`);
+                    setDestinationLat(dest.lat);
+                    setDestinationLng(dest.lng);
+                  }}
+                  className="rounded-md border border-border bg-card px-2 py-0.5 text-[11px] text-muted-foreground transition hover:border-info hover:text-foreground"
+                >
+                  🏁 {dest.name}
+                </button>
+              ))}
+            </div>
+            {destinationLat != null && destinationLng != null && (
+              <p className="flex items-center gap-1 text-[11px] text-success">
+                <MapPin className="h-3 w-3" /> Destination coordinates attached: {destinationLat},{" "}
+                {destinationLng}
+              </p>
+            )}
+          </div>
 
           {/* Commodity (optional) */}
           <label className="block text-sm font-medium" htmlFor="commodity">
