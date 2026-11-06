@@ -202,13 +202,13 @@ function Processing() {
     >
       {/* Trip reference */}
       {tripCode && (
-        <p className="text-sm text-muted-foreground">
+        <p className="text-sm text-muted-foreground" aria-label={`Trip reference: ${tripCode}`}>
           Trip: <span className="font-semibold text-foreground">{tripCode}</span>
         </p>
       )}
 
       <Card>
-        <ol className="space-y-1">
+        <ol className="space-y-1" aria-label="Verification pipeline steps">
           {STEPS.map((s, i) => {
             const stepStatus =
               isDone || i < activeStep ? "done" : i === activeStep ? "run" : "wait";
@@ -216,6 +216,7 @@ function Processing() {
               <li
                 key={s}
                 className={`flex items-center gap-3 rounded-lg px-2 py-2.5 ${stepStatus === "run" ? "bg-info-soft" : ""}`}
+                aria-label={`${s}: ${stepStatus === "done" ? "Completed" : stepStatus === "run" ? "Processing" : "Pending"}`}
               >
                 {stepStatus === "done" ? (
                   <CheckCircle2 className="h-6 w-6 text-success" />
@@ -247,7 +248,12 @@ function Processing() {
       </Card>
 
       <Card className="border-info/30 bg-info-soft">
-        <p className="text-sm font-semibold text-info">
+        <p
+          role="status"
+          aria-live="polite"
+          aria-label={`Verification progress: ${progressPct}%`}
+          className="text-sm font-semibold text-info"
+        >
           Current Step:{" "}
           {isDone
             ? status === "pass"
@@ -268,7 +274,11 @@ function Processing() {
 
       {/* Status-specific messages */}
       {!isDone && status === "pending" && (
-        <div className="flex items-center gap-2 rounded-xl border border-saffron/50 bg-warning-soft p-3 text-sm text-warning">
+        <div
+          role="status"
+          aria-live="polite"
+          className="flex items-center gap-2 rounded-xl border border-saffron/50 bg-warning-soft p-3 text-sm text-warning"
+        >
           <AlertTriangle className="h-4 w-4 shrink-0" />
           Verification is queued. If no AI provider is configured, results will remain pending until
           a provider is set up or a manual review is triggered.
@@ -292,10 +302,18 @@ function Processing() {
         </div>
       ) : (
         <div className="space-y-3">
-          <p className="flex items-center gap-2 text-sm text-muted-foreground">
-            <Clock className="h-4 w-4" />
+          <p
+            role="status"
+            aria-live="polite"
+            className="flex items-center gap-2 text-sm text-muted-foreground"
+          >
+            <Clock className="h-4 w-4" aria-hidden="true" />
             Waiting for AI processor. This page will update automatically.
-            {waitingSeconds > 0 && <span className="text-xs">({waitingSeconds}s elapsed)</span>}
+            {waitingSeconds > 0 && (
+              <span className="text-xs" aria-label={`${waitingSeconds} seconds elapsed`}>
+                ({waitingSeconds}s elapsed)
+              </span>
+            )}
           </p>
           {waitingSeconds >= 25 && (
             <div className="flex items-center justify-between gap-2 rounded-xl border border-warning/30 bg-warning-soft p-3 text-xs text-warning">

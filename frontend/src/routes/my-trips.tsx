@@ -174,7 +174,10 @@ function MyTrips() {
 
         {/* Error */}
         {error && (
-          <div className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+          <div
+            role="alert"
+            className="rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+          >
             {error}
           </div>
         )}
@@ -208,23 +211,40 @@ function MyTrips() {
         {/* Trips list */}
         {!loading && trips.length > 0 && (
           <div className="overflow-hidden rounded-lg border border-border bg-card shadow-sm">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" aria-label="Your grain transport trips">
+              <caption className="sr-only">
+                List of your submitted grain transport trips with status and details
+              </caption>
               <thead className="border-b border-border bg-muted/40">
                 <tr>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-muted-foreground">
                     Trip Code
                   </th>
-                  <th className="hidden px-4 py-3 text-left font-medium text-muted-foreground sm:table-cell">
+                  <th
+                    scope="col"
+                    className="hidden px-4 py-3 text-left font-medium text-muted-foreground sm:table-cell"
+                  >
                     Vehicle
                   </th>
-                  <th className="hidden px-4 py-3 text-left font-medium text-muted-foreground md:table-cell">
+                  <th
+                    scope="col"
+                    className="hidden px-4 py-3 text-left font-medium text-muted-foreground md:table-cell"
+                  >
                     Stage
                   </th>
-                  <th className="px-4 py-3 text-left font-medium text-muted-foreground">Status</th>
-                  <th className="hidden px-4 py-3 text-left font-medium text-muted-foreground sm:table-cell">
+                  <th scope="col" className="px-4 py-3 text-left font-medium text-muted-foreground">
+                    Status
+                  </th>
+                  <th
+                    scope="col"
+                    className="hidden px-4 py-3 text-left font-medium text-muted-foreground sm:table-cell"
+                  >
                     Date
                   </th>
-                  <th className="px-4 py-3 text-right font-medium text-muted-foreground">
+                  <th
+                    scope="col"
+                    className="px-4 py-3 text-right font-medium text-muted-foreground"
+                  >
                     Details
                   </th>
                 </tr>
@@ -262,10 +282,11 @@ function MyTrips() {
                       <Link
                         to="/trip"
                         search={{ tripId: t.id }}
+                        aria-label={`View details for trip ${t.trip_code}`}
                         className="inline-flex items-center gap-1 rounded-md px-2 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/10"
                       >
                         View
-                        <ChevronRight className="h-3 w-3" />
+                        <ChevronRight className="h-3 w-3" aria-hidden="true" />
                       </Link>
                     </td>
                   </tr>
@@ -283,18 +304,20 @@ function MyTrips() {
                   <button
                     onClick={() => setPage((p) => Math.max(0, p - 1))}
                     disabled={page === 0}
+                    aria-label="Go to previous page"
                     className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-40"
                   >
-                    <ChevronLeft className="h-3 w-3" />
+                    <ChevronLeft className="h-3 w-3" aria-hidden="true" />
                     Prev
                   </button>
                   <button
                     onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
                     disabled={page >= totalPages - 1}
+                    aria-label="Go to next page"
                     className="inline-flex items-center gap-1 rounded-md border border-border px-2 py-1 text-xs font-medium text-foreground transition-colors hover:bg-muted disabled:opacity-40"
                   >
                     Next
-                    <ChevronRight className="h-3 w-3" />
+                    <ChevronRight className="h-3 w-3" aria-hidden="true" />
                   </button>
                 </div>
               </div>

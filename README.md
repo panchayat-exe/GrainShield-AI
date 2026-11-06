@@ -1,91 +1,60 @@
 # GrainShield AI
 
-> **AI-powered photograph verification for Gujarat food-grain logistics**
->
-> Problem Statement PS000006 — Food, Civil Supplies & Consumer Affairs Dept., Gujarat Government
-> Gujarat State Civil Supplies Corporation Ltd. (GSCSCL)
+**Government Food Grain Logistics Verification System**  
+Gujarat State Civil Supplies Corporation Ltd. (GSCSCL) · SFIC PS000006
 
 ---
 
-## What It Does
+## Production Status
 
-GrainShield AI automatically verifies 69,000+ trip photographs per month across the food-grain supply chain:
-
-| Stage | Description | Evidence Required |
-|-------|-------------|-------------------|
-| **First Mile** | FCI Godown → GSCSCL Godown | Vehicle + registration plate |
-| **Mid Mile** | In transit | Vehicle + plate |
-| **Last Mile** | GSCSCL Godown → Fair Price Shop | Vehicle + plate + FPS person present |
-
-Each photograph is analysed by the AI pipeline and receives one of four decisions:
-
-| Decision | Meaning |
-|----------|---------|
-| ✅ **PASS** | All mandatory checks verified with high confidence |
-| ❌ **FAIL** | Evidence clearly violates a mandatory requirement |
-| 🔄 **RETAKE** | Image quality issue the driver can fix by retaking |
-| 👁️ **MANUAL REVIEW** | Uncertain evidence requiring officer judgement |
+| Item | Value |
+|---|---|
+| **Version** | Production RC |
+| **Branch** | `main` |
+| **Latest commit** | `743a590` |
+| **Migrations applied** | 001 – 025 |
+| **Database** | Supabase PostgreSQL (hosted) |
+| **Apps** | Citizen Web · Admin Dashboard · Driver Mobile |
 
 ---
 
-## Monorepo Structure
+## What is GrainShield AI?
 
-```
-GrainShield-AI/
-├── frontend/          # Citizen web app (React + Vite, port 8080)
-├── apps/admin/        # Admin dashboard (TanStack Start, port 3001)
-├── mobile/            # Driver mobile app (React Native / Expo)
-├── ai-model/          # Python AI inference server (FastAPI, port 8000)
-├── ai-worker/         # Node.js verification job worker
-├── database/
-│   └── migrations/    # 009 sequential SQL migrations (Supabase)
-├── docker-compose.yml # Local dev orchestration
-└── .github/workflows/
-    └── ci.yml         # 4-job CI: frontend · admin · mobile · ai-model
+GrainShield AI is a three-application government logistics platform that verifies food grain transport through Gujarat's public distribution supply chain. It uses AI-powered vehicle number-plate recognition and grain detection to ensure authorised vehicles transport grain through every checkpoint — from FCI Mandi to Fair Price Shop.
+
+```mermaid
+flowchart LR
+    C[Citizen Web App\nReact + Vite\nPort 8080]
+    A[Admin Dashboard\nReact + Vite\nPort 3001]
+    M[Driver Mobile App\nExpo + React Native]
+    W[AI Worker\nNode.js]
+    AI[AI Model Service\nPython FastAPI + YOLOv8]
+    DB[(Supabase\nPostgreSQL + RLS\nStorage + Realtime)]
+    EF[Edge Functions\nResend + Expo Push]
+
+    C -->|RPC + REST| DB
+    A -->|REST + Realtime| DB
+    M -->|REST + Realtime| DB
+    W -->|Service-role| DB
+    W -->|HTTP| AI
+    DB -->|Triggers| EF
+    EF -->|Email| C
+    EF -->|Push| M
 ```
 
 ---
 
-## AI Pipeline (v2.1.0)
+## Architecture
 
-```
-Image Upload
-    │
-    ▼
-Image Quality Check  ──── blurry/dark/overexposed/low-res ──▶ RETAKE
-    │ clear
-    ▼
-YOLO26n Vehicle Detection (Ultralytics C3k2+C2PSA architecture: car/bus/truck/motorcycle/person)
-    │ no vehicle
-    ▼ ──────────────────────────────────────────────────────▶ MANUAL REVIEW
-    │ vehicle(s) found
-    ▼
-OpenCV Plate Region Finder
-  bilateral filter → Canny edges → contour aspect-ratio filter (2:1–8:1)
-  top-3 plate candidates per vehicle
-    │ no plate region
-    ▼ ──────────────────────────────────────────────────────▶ RETAKE
-    │ plate crop found
-    ▼
-Multi-PSM Tesseract OCR
-  (adaptive / CLAHE / Otsu preprocessing, PSM 7/8/13)
-    │
-    ▼
-Indian Plate Normalization  GJ05AB1234
-  position-aware confusion map (O→0, I→1 at digit positions only)
-    │
-    ▼
-Levenshtein Similarity Match vs. assigned vehicle
-  exact / confusion → PASS
-  similarity ≥ 70%  → MANUAL REVIEW
-  valid plate, sim < 50% → FAIL
-  OCR unclear        → MANUAL REVIEW / RETAKE
-```
-
-**Benchmark (15 test images):**
-- Vehicle detection: 15/15 (100 %)
-- Plate region candidates extracted: avg 7 per image
-- Average latency: **12.2 s** (down from 37.75 s in v1.0 — 3× improvement)
+| Layer | Technology |
+|---|---|
+| Citizen frontend | React 18, Vite, TanStack Router, Tailwind CSS |
+| Admin dashboard | React 18, Vite, TanStack Router, Tailwind CSS, Leaflet |
+| Driver mobile | Expo 51, React Native, Expo Location (background GPS) |
+| Backend | Supabase Auth, PostgreSQL 15, Row-Level Security, Storage, Realtime |
+| AI worker | Node.js 20, Supabase JS SDK |
+| AI model service | Python 3.11, FastAPI, YOLOv8 (Ultralytics), EasyOCR |
+| Notifications | Supabase Edge Functions, Resend (email), Expo Push |
 
 ---
 
@@ -93,170 +62,238 @@ Levenshtein Similarity Match vs. assigned vehicle
 
 ### Prerequisites
 
-| Tool | Version |
-|------|---------|
-| Node.js | 20+ |
-| Python | 3.12 |
-| Tesseract OCR | 5.x |
-| Git | any |
+- Node.js 20+
+- Python 3.11+ (AI model service only)
+- Expo CLI (`npm install -g @expo/cli`)
+- A Supabase project with migrations 001–025 applied
 
-### 1. Clone
+### Environment Variables
 
-```bash
-git clone git@github.com:panchayat-exe/GrainShield-AI.git
-cd GrainShield-AI
-```
-
-### 2. Environment Variables
+Each app needs a `.env` file. Copy the example and fill in your values:
 
 ```bash
-# Citizen frontend
+# Citizen frontend & Admin dashboard
 cp frontend/.env.example frontend/.env
-
-# Admin dashboard
 cp apps/admin/.env.example apps/admin/.env
 
-# AI worker (fill in Supabase service_role key)
+# AI worker
 cp ai-worker/.env.example ai-worker/.env
-
-# AI inference server
-cp ai-model/.env.example ai-model/.env
 ```
 
-### 3. Install dependencies
+**Required variables:**
+
+| App | Variable | Description |
+|---|---|---|
+| `frontend/` | `VITE_SUPABASE_URL` | Your Supabase project URL |
+| `frontend/` | `VITE_SUPABASE_ANON_KEY` | Supabase anon (public) key |
+| `apps/admin/` | `VITE_SUPABASE_URL` | Same Supabase project URL |
+| `apps/admin/` | `VITE_SUPABASE_ANON_KEY` | Same Supabase anon key |
+| `mobile/` | `EXPO_PUBLIC_SUPABASE_URL` | Same Supabase project URL |
+| `mobile/` | `EXPO_PUBLIC_SUPABASE_ANON_KEY` | Same Supabase anon key |
+| `ai-worker/` | `SUPABASE_URL` | Same Supabase project URL |
+| `ai-worker/` | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service-role key (privileged) |
+| `ai-worker/` | `CV_PROVIDER` | `http` (production) or `mock` (dev) |
+| `ai-worker/` | `CV_API_URL` | URL of the Python AI model service |
+
+### Development
+
+```bash
+# 1. Citizen Web App (port 8080)
+cd frontend
+npm install
+npm run dev
+
+# 2. Admin Dashboard (port 3001)
+cd apps/admin
+npm install
+npm run dev
+
+# 3. Driver Mobile App
+cd mobile
+npm install
+npx expo start
+
+# 4. AI Worker
+cd ai-worker
+npm install
+node src/worker.js
+
+# 5. AI Model Service (Python)
+cd ai-model-service
+pip install -r requirements.txt
+uvicorn main:app --host 0.0.0.0 --port 8000
+```
+
+### Production Build
 
 ```bash
 # Citizen frontend
-cd frontend && npm install
+cd frontend && npm run build        # Output: frontend/dist/
 
 # Admin dashboard
-cd apps/admin && npm install
+cd apps/admin && npm run build      # Output: apps/admin/dist/
 
-# Mobile app
-cd mobile && npm install
-
-# AI worker
-cd ai-worker && npm install
-
-# AI model (Python)
-cd ai-model && pip install -r requirements.txt
-```
-
-### 4. Run all services
-
-```bash
-# Terminal 1 — AI inference server
-cd ai-model
-python src/server.py
-
-# Terminal 2 — AI worker
-cd ai-worker
-node --env-file=.env src/worker.js
-
-# Terminal 3 — Citizen frontend
-cd frontend
-npm run dev       # http://localhost:8080
-
-# Terminal 4 — Admin dashboard
-cd apps/admin
-npm run dev       # http://localhost:3001
-```
-
-### 5. Docker (optional)
-
-```bash
-docker compose up
+# Mobile — EAS Build required for production APK
+cd mobile
+npm install -g eas-cli
+eas build --platform android --profile production
 ```
 
 ---
 
 ## Database Migrations
 
-All migrations live in `database/migrations/`. Apply them in order in the Supabase SQL Editor:
+All migrations are in `database/migrations/`. Apply them in order against your Supabase project.
+
+**Apply via Supabase SQL Editor:**
+
+1. Open [Supabase Dashboard](https://supabase.com/dashboard) → SQL Editor
+2. Copy-paste each migration file content in order
+3. Run each one and confirm it succeeds before proceeding
 
 | Migration | Description |
-|-----------|-------------|
-| `001_core_schema.sql` | trips, evidence, verifications, profiles |
-| `002_auth_triggers.sql` | Auto-create profile on signup |
-| `003_rls_policies.sql` | Row-Level Security for all tables |
-| `004_audit_triggers.sql` | Automatic audit log on every write |
-| `005_storage_policies.sql` | trip-evidence bucket policies |
-| `006_email_config_notes.sql` | Email setup notes |
-| `007_admin_rls_policies.sql` | Admin-specific RLS + `is_admin()` helper |
-| `008_vehicles_organizations.sql` | Vehicles master + organisations (demo data) |
-| `009_atomic_job_claiming.sql` | `claim_pending_verification()` RPC |
-| `010_add_fail_verification_status.sql` | Added `fail` verification status enum |
-| `011_secure_atomic_claim_function.sql` | Secure atomic job claiming with service_role restriction |
-| `012_worker_stale_job_recovery.sql` | Automatic recovery of stale jobs (>5m) with retry tracking |
+|---|---|
+| `001_initial_schema.sql` | Base schema: trips, users, vehicles |
+| `002` – `019` | Incremental schema improvements, indexes, RLS policies |
+| `020_audit_logs.sql` | Audit log table and triggers |
+| `021_trip_evidence.sql` | Evidence storage with SHA-256 checksum |
+| `022_notifications.sql` | Notification queue schema |
+| `023_failed_jobs.sql` | Dead-letter queue for AI worker |
+| `024_trip_locations.sql` | GPS location tracking with duplicate prevention |
+| `025_citizen_trip_rpc.sql` | **REQUIRED** — Automatic Trip ID generation RPC, origin/destination coordinates, commodity |
 
----
+> [!IMPORTANT]
+> Migration 025 **must** be applied before the citizen app will work. Without it, `citizen_create_trip()` does not exist and trip submission will fail.
 
-## Access & Roles (Supabase Auth)
+**Verify migration 025 applied successfully:**
 
-User accounts and roles are managed via Supabase Auth and the `public.profiles` table:
+```sql
+-- Should return the function
+SELECT routine_name FROM information_schema.routines
+WHERE routine_name = 'citizen_create_trip';
 
-| Role | Access Level | Description |
-|------|--------------|-------------|
-| `super_admin` | Full Administrative Access | Admin Dashboard (`apps/admin`), manual reviews, user management, audit logs |
-| `user` | Driver / Citizen Access | Citizen Web App (`frontend`), trip submission, evidence photo upload |
+-- Should return the columns
+SELECT column_name FROM information_schema.columns
+WHERE table_name = 'trips'
+  AND column_name IN ('origin_lat', 'origin_lng', 'destination_lat', 'destination_lng', 'commodity', 'quantity_kg');
 
-> [!NOTE] Passwords must never be committed to repository files. Development and officer accounts are configured in the Supabase Dashboard (`Authentication -> Users`).
-
----
-
-## Running Tests
-
-```bash
-# AI model unit tests (21 tests)
-cd ai-model
-python -m pytest tests/ -v
-
-# AI validation benchmark (requires annotated images)
-python validation/run_validation.py
-
-# Citizen frontend (vitest)
-cd frontend
-npm test
-
-# Admin dashboard (vitest)
-cd apps/admin
-npm test
-
-# Mobile (vitest)
-cd mobile
-npm test
+-- Should return the unique constraint
+SELECT constraint_name FROM information_schema.table_constraints
+WHERE table_name = 'trips' AND constraint_name = 'trips_trip_code_unique';
 ```
+
+---
+
+## Key Features
+
+### Automatic Trip ID Generation
+
+Citizens **never** manually enter a Trip ID. The backend generates a unique, human-readable ID automatically:
+
+**Format:** `GS-YYYY-NNNNNN` (e.g., `GS-2026-000142`)
+
+- Generated by `generate_trip_code()` database function (migration 019)
+- Called via `citizen_create_trip()` SECURITY DEFINER RPC (migration 025)
+- Globally unique, enforced at the database level
+- Retry-safe — concurrent submissions are handled with a retry loop
+- Returned to the citizen on the confirmation screen
+
+### AI Verification Pipeline
+
+1. Citizen uploads a vehicle photograph
+2. AI worker polls for `pending` verification jobs
+3. AI model service (YOLOv8 + EasyOCR) detects and reads the number plate
+4. Result is `pass`, `retake`, or `manual_review`
+5. Citizen is notified via Supabase Realtime
+
+### GPS Tracking
+
+- Driver mobile app tracks GPS in the background (Expo Location)
+- Locations are stored with timestamps in `trip_locations`
+- Admin live-tracking map shows current driver position
+- Stale GPS warnings appear when last location is > 10 minutes old
+- Duplicate locations within 30 seconds are discarded
+
+### Gujarati Localisation
+
+The citizen web app supports English and Gujarati:
+- Language toggle in the app header (English ↔ ગુજરાતી)
+- Language preference persists in localStorage
+- 90+ translated strings covering all major UI elements
+
+---
+
+## Production Reports
+
+The following compliance and audit documents are in the repository root:
+
+| Document | Description |
+|---|---|
+| [`GRAINSHIELD_FINAL_PROJECT_AUDIT.md`](./GRAINSHIELD_FINAL_PROJECT_AUDIT.md) | Full codebase and architecture audit |
+| [`GRAINSHIELD_FINAL_REQUIREMENTS.md`](./GRAINSHIELD_FINAL_REQUIREMENTS.md) | Formal requirements specification |
+| [`GRAINSHIELD_BUTTON_FUNCTIONALITY_MATRIX.md`](./GRAINSHIELD_BUTTON_FUNCTIONALITY_MATRIX.md) | Every button/form/link verified |
+| [`GRAINSHIELD_AI_ACCURACY_REPORT.md`](./GRAINSHIELD_AI_ACCURACY_REPORT.md) | AI model evaluation (honest — no fabricated metrics) |
+| [`GRAINSHIELD_GPS_PHYSICAL_DEVICE_TEST_REPORT.md`](./GRAINSHIELD_GPS_PHYSICAL_DEVICE_TEST_REPORT.md) | GPS testing procedure and results |
+| [`GRAINSHIELD_SECURITY_AUDIT.md`](./GRAINSHIELD_SECURITY_AUDIT.md) | Security audit: RLS, auth, evidence integrity |
+| [`GRAINSHIELD_END_TO_END_TEST_REPORT.md`](./GRAINSHIELD_END_TO_END_TEST_REPORT.md) | End-to-end test results |
+| [`GRAINSHIELD_DATABASE_MIGRATION_REVIEW.md`](./GRAINSHIELD_DATABASE_MIGRATION_REVIEW.md) | Migration review and rollback procedures |
+| [`GRAINSHIELD_DEPLOYMENT_GUIDE.md`](./GRAINSHIELD_DEPLOYMENT_GUIDE.md) | Step-by-step production deployment |
+| [`GRAINSHIELD_PRODUCTION_READINESS_CHECKLIST.md`](./GRAINSHIELD_PRODUCTION_READINESS_CHECKLIST.md) | Go/No-Go checklist |
+| [`GRAINSHIELD_PERFORMANCE_TEST_GUIDE.md`](./GRAINSHIELD_PERFORMANCE_TEST_GUIDE.md) | k6/Artillery load tests, Lighthouse targets |
+| [`GRAINSHIELD_BACKUP_DR_GUIDE.md`](./GRAINSHIELD_BACKUP_DR_GUIDE.md) | Backup schedule, PITR, disaster recovery |
 
 ---
 
 ## Security
 
-- **Authentication**: Supabase Auth (JWT) on all API routes
-- **Row-Level Security**: Enforced on every table — users only see their own trips
-- **Admin access**: `is_admin()` database function gates all admin queries
-- **AI API**: `CV_API_KEY` bearer token; rate-limited to 10 req/min per IP (SlowAPI)
-- **CORS**: `ALLOWED_ORIGINS` environment variable — no wildcard in production
-- **Signed URLs**: Evidence photographs served via 300-second expiring signed URLs
+- All data access is enforced by **Row-Level Security (RLS)** at the database level
+- Citizens can only read and write their own trips
+- Drivers can only access trips assigned to them
+- The service-role key is used only by the AI worker (never exposed to the browser)
+- Evidence files are stored with SHA-256 checksums to detect tampering
+- All sensitive actions are logged in `audit_logs`
+- Trip IDs are generated by the backend only — never accepted from client input
+
+> [!CAUTION]
+> Never expose `SUPABASE_SERVICE_ROLE_KEY` to the browser or mobile app. This key bypasses all RLS policies.
 
 ---
 
-## CI/CD
+## Repository Structure
 
-GitHub Actions (`.github/workflows/ci.yml`) runs on every push to `main`:
-
-| Job | Steps |
-|-----|-------|
-| `frontend` | lint → tsc → vitest → build |
-| `admin` | tsc → vitest → build |
-| `mobile` | tsc → vitest |
-| `ai-model` | syntax check → pytest |
+```
+GrainShield-AI/
+├── frontend/              # Citizen Web App (React + Vite)
+├── apps/admin/            # Admin Dashboard (React + Vite)
+├── mobile/                # Driver Mobile App (Expo + React Native)
+├── ai-worker/             # AI Job Worker (Node.js)
+├── ai-model-service/      # AI Model Service (Python FastAPI + YOLOv8)
+├── supabase/
+│   └── functions/         # Edge Functions (notifications)
+├── database/
+│   └── migrations/        # 001–025 SQL migration files
+├── GRAINSHIELD_*.md       # Production compliance documents
+└── README.md
+```
 
 ---
 
-## Project Team
+## Contributing
 
-- **Problem Statement**: PS000006 — SFIC Hackathon
-- **Department**: Food, Civil Supplies & Consumer Affairs, Gujarat
-- **Organisation**: GSCSCL (Gujarat State Civil Supplies Corporation Ltd.)
-- **AI Team**: Nidhish, Prathmesh
-- **Development**: Full-stack (React, Node.js, Python, Supabase)
+1. Never apply database migrations to production without explicit authorization.
+2. Run TypeScript checks before committing: `npx tsc --noEmit`
+3. Run Prettier before committing: `npx prettier --write "src/**/*.{ts,tsx}"`
+4. All new features require a migration file (if DB changes are needed).
+5. Do not introduce duplicate Trip ID systems.
+6. Preserve all existing audit logs and evidence records.
+
+---
+
+## Licence
+
+Internal government project — GSCSCL / Gujarat Government use only.  
+Not for public distribution.
+
+---
+
+*GrainShield AI — Securing Gujarat's food grain supply chain through AI-powered verification.*

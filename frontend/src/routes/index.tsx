@@ -236,11 +236,21 @@ function Upload() {
     return (
       <AppShell crumbs={["Home", "Trip Verification", "Submitted"]} title="Trip Submitted">
         <Card>
-          <div className="flex flex-col items-center gap-4 py-4 text-center">
-            <CheckCircle2 className="h-16 w-16 text-success" />
+          <div
+            role="status"
+            aria-live="polite"
+            aria-label="Trip submission confirmed"
+            className="flex flex-col items-center gap-4 py-4 text-center"
+          >
+            <CheckCircle2 className="h-16 w-16 text-success" aria-hidden="true" />
             <div>
               <p className="mb-1 text-sm text-muted-foreground">Your Trip ID</p>
-              <p className="text-2xl font-bold tracking-widest text-primary">{confirmedTripCode}</p>
+              <p
+                className="text-2xl font-bold tracking-widest text-primary"
+                aria-label={`Your Trip ID is ${confirmedTripCode}`}
+              >
+                {confirmedTripCode}
+              </p>
             </div>
             <p className="text-sm text-muted-foreground">
               Save this ID for your records. You can track your trip status in{" "}
@@ -249,6 +259,7 @@ function Upload() {
             <p className="text-xs text-muted-foreground">Redirecting to verification status…</p>
             <button
               className={btn.saffron}
+              aria-label="Go to verification status page"
               onClick={() => void nav({ to: "/processing", search: { tripId: confirmedTripId } })}
             >
               Go to Verification Status
@@ -274,8 +285,12 @@ function Upload() {
       <Card>
         <div className="space-y-3">
           {error && (
-            <div className="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
-              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div
+              role="alert"
+              aria-live="assertive"
+              className="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger"
+            >
+              <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
               <span>{error}</span>
             </div>
           )}
@@ -306,11 +321,19 @@ function Upload() {
           </label>
 
           {/* Trip Stage */}
-          <label className="block text-sm font-medium">
-            Trip Stage <span className="text-danger">*</span>
+          <label className="block text-sm font-medium" htmlFor="trip-stage">
+            Trip Stage{" "}
+            <span className="text-danger" aria-hidden="true">
+              *
+            </span>
             <select
+              id="trip-stage"
               className={`${input} mt-1 ${fieldErrors.stage ? "border-danger ring-1 ring-danger" : ""}`}
               value={stage}
+              aria-label="Trip stage"
+              aria-required="true"
+              aria-invalid={fieldErrors.stage ? "true" : "false"}
+              aria-describedby={fieldErrors.stage ? "trip-stage-error" : undefined}
               onChange={(e) => {
                 setStage(e.target.value as TripStage | "");
                 if (fieldErrors.stage) {
@@ -331,43 +354,53 @@ function Upload() {
                 Last Mile — Godown to Fair Price Shop (CP3 &amp; CP4)
               </option>
             </select>
-            {fieldErrors.stage && <p className="mt-1 text-xs text-danger">{fieldErrors.stage}</p>}
+            {fieldErrors.stage && (
+              <p id="trip-stage-error" role="alert" className="mt-1 text-xs text-danger">
+                {fieldErrors.stage}
+              </p>
+            )}
           </label>
 
           {/* Origin (optional) */}
-          <label className="block text-sm font-medium">
+          <label className="block text-sm font-medium" htmlFor="origin">
             Origin
             <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
             <input
+              id="origin"
               className={`${input} mt-1`}
               placeholder="e.g. Ahmedabad FCI Godown"
               value={origin}
+              aria-label="Trip origin location (optional)"
               onChange={(e) => setOrigin(e.target.value)}
               disabled={submitting}
             />
           </label>
 
           {/* Destination (optional) */}
-          <label className="block text-sm font-medium">
+          <label className="block text-sm font-medium" htmlFor="destination">
             Destination
             <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
             <input
+              id="destination"
               className={`${input} mt-1`}
               placeholder="e.g. Gandhinagar FPS-01"
               value={destination}
+              aria-label="Trip destination location (optional)"
               onChange={(e) => setDestination(e.target.value)}
               disabled={submitting}
             />
           </label>
 
           {/* Commodity (optional) */}
-          <label className="block text-sm font-medium">
+          <label className="block text-sm font-medium" htmlFor="commodity">
             Commodity
             <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
             <input
+              id="commodity"
               className={`${input} mt-1`}
               placeholder="e.g. Wheat, Rice, Sorghum"
               value={commodity}
+              aria-label="Commodity type (optional)"
               onChange={(e) => setCommodity(e.target.value)}
               disabled={submitting}
             />
@@ -410,6 +443,8 @@ function Upload() {
         <button
           onClick={() => fileRef.current?.click()}
           disabled={submitting}
+          aria-label="Select or capture a vehicle photograph"
+          aria-describedby="photo-requirements"
           className={`flex w-full flex-col items-center gap-2 rounded-xl border-2 border-dashed py-8 text-sm disabled:opacity-60 ${
             fieldErrors.file
               ? "border-danger bg-danger-soft/30 text-danger"
@@ -426,19 +461,29 @@ function Upload() {
           accept="image/jpeg,image/png,image/webp"
           capture="environment"
           hidden
+          aria-hidden="true"
+          tabIndex={-1}
           onChange={onFileChange}
         />
 
         {fileError && (
-          <div className="mt-2 flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="mt-2 flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             {fileError}
           </div>
         )}
 
         {fieldErrors.file && !fileError && (
-          <div className="mt-2 flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger">
-            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+          <div
+            role="alert"
+            aria-live="assertive"
+            className="mt-2 flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger"
+          >
+            <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
             {fieldErrors.file}
           </div>
         )}
@@ -456,7 +501,10 @@ function Upload() {
           </>
         )}
 
-        <div className="mt-4 rounded-xl border border-saffron/50 bg-warning-soft p-3 text-sm">
+        <div
+          id="photo-requirements"
+          className="mt-4 rounded-xl border border-saffron/50 bg-warning-soft p-3 text-sm"
+        >
           <p className="mb-1.5 flex items-center gap-2 font-medium text-warning">
             <TriangleAlert className="h-4 w-4" />
             Image Requirements
@@ -471,14 +519,23 @@ function Upload() {
       </Card>
 
       {error && (
-        <div className="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger shadow-sm">
-          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" />
+        <div
+          role="alert"
+          aria-live="assertive"
+          className="flex items-start gap-2 rounded-xl border border-danger/40 bg-danger-soft p-3 text-sm text-danger shadow-sm"
+        >
+          <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
           <span className="flex-1 font-medium">{error}</span>
         </div>
       )}
 
       <div className="grid grid-cols-2 gap-3">
-        <button className={btn.maroon} onClick={handleReset} disabled={submitting}>
+        <button
+          className={btn.maroon}
+          onClick={handleReset}
+          disabled={submitting}
+          aria-label="Reset form"
+        >
           Reset
         </button>
         <button
@@ -487,6 +544,8 @@ function Upload() {
             void handleSubmit();
           }}
           disabled={submitting || authLoading}
+          aria-busy={submitting}
+          aria-label={submitting ? "Submitting trip, please wait" : "Submit trip for verification"}
         >
           {submitting ? (
             <span className="flex items-center justify-center gap-2">

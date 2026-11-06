@@ -129,9 +129,15 @@ const faqs: FaqItem[] = [
 function FaqRow({ item }: { item: FaqItem }) {
   return (
     <details className="group border-b border-border last:border-0">
-      <summary className="flex cursor-pointer items-center justify-between gap-3 py-4 text-sm font-medium text-foreground marker:hidden">
+      <summary
+        className="flex cursor-pointer items-center justify-between gap-3 py-4 text-sm font-medium text-foreground marker:hidden"
+        aria-label={item.q}
+      >
         <span>{item.q}</span>
-        <HelpCircle className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-45" />
+        <HelpCircle
+          className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-open:rotate-45"
+          aria-hidden="true"
+        />
       </summary>
       <div className="pb-4 text-sm text-muted-foreground">{item.a}</div>
     </details>
@@ -154,7 +160,11 @@ function Help() {
 
         {/* Checkpoint diagram */}
         <Card title="Four-Checkpoint Logistics Workflow">
-          <div className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4">
+          <div
+            className="grid grid-cols-2 gap-3 text-xs sm:grid-cols-4"
+            role="list"
+            aria-label="Four logistics checkpoints"
+          >
             {[
               {
                 cp: "CP1",
@@ -168,6 +178,8 @@ function Help() {
             ].map((c) => (
               <div
                 key={c.cp}
+                role="listitem"
+                aria-label={`${c.cp} — ${c.label} at ${c.desc}`}
                 className="flex flex-col items-center rounded-lg border border-border bg-muted/40 px-3 py-3 text-center"
               >
                 <span className="mb-1 text-lg font-bold text-primary">{c.cp}</span>
@@ -195,27 +207,29 @@ function Help() {
         </Card>
 
         {/* Quick links */}
-        <div className="flex flex-wrap gap-3">
-          <Link
-            to="/"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-          >
-            <Camera className="h-3.5 w-3.5" />
-            Upload Photo
-          </Link>
-          <Link
-            to="/my-trips"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-          >
-            My Trips
-          </Link>
-          <Link
-            to="/profile"
-            className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
-          >
-            My Profile
-          </Link>
-        </div>
+        <nav aria-label="Quick navigation links">
+          <div className="flex flex-wrap gap-3">
+            <Link
+              to="/"
+              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              <Camera className="h-3.5 w-3.5" aria-hidden="true" />
+              Submit Trip
+            </Link>
+            <Link
+              to="/my-trips"
+              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              My Trips
+            </Link>
+            <Link
+              to="/profile"
+              className="inline-flex items-center gap-1 rounded-md border border-border px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-muted"
+            >
+              My Profile
+            </Link>
+          </div>
+        </nav>
       </div>
     </AppShell>
   );
