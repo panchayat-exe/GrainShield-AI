@@ -89,8 +89,16 @@ export async function upsertTrip(params: {
 
   const existing = await getTripByCode(normalizedCode);
   if (existing) {
-    if (existing.created_by !== userId && existing.assigned_to !== userId) {
-      return { trip: null, error: "You are not authorized to submit evidence for this trip." };
+    // Also allow the driver who is assigned via driver_id column (migration 023)
+    if (
+      existing.created_by !== userId &&
+      existing.assigned_to !== userId &&
+      (existing as any).driver_id !== userId
+    ) {
+      return {
+        trip: null,
+        error: "You are not authorized to submit evidence for this trip.",
+      };
     }
     return { trip: existing, error: null };
   }
@@ -102,10 +110,17 @@ export async function upsertTrip(params: {
     created_by: userId,
     status: "submitted" as const,
   };
-  const { data, error } = await supabase.from("trips").insert(payload).select().single();
+  const { data, error } = await supabase
+    .from("trips")
+    .insert(payload)
+    .select()
+    .single();
   if (error) {
     console.error("[trips] upsertTrip insert:", error.message);
-    return { trip: null, error: "Failed to create trip record. Please try again." };
+    return {
+      trip: null,
+      error: "Failed to create trip record. Please try again.",
+    };
   }
   return { trip: data as Trip, error: null };
 }
@@ -124,9 +139,12 @@ export async function listMyTrips(): Promise<Trip[]> {
 
 export async function updateTripStatus(
   tripId: string,
-  status: Trip["status"]
+  status: Trip["status"],
 ): Promise<{ error: string | null }> {
-  const { error } = await supabase.from("trips").update({ status }).eq("id", tripId);
+  const { error } = await supabase
+    .from("trips")
+    .update({ status })
+    .eq("id", tripId);
   if (error) return { error: error.message };
   return { error: null };
 }

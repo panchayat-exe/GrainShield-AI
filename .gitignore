@@ -82,3 +82,10 @@ ai-model/test_images/benchmark_results.csv
 *.bak
 ai-model/debug_*/
 
+
+# -- Mobile and AI model env files (I1 fix) --
+mobile/.env
+mobile/.env.local
+mobile/.env.*.local
+ai-model/.env
+ai-model/.env.local

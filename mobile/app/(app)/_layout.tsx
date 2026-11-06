@@ -1,6 +1,7 @@
 /**
  * App group layout — bottom tab navigator for authenticated screens.
- * Redirects to /(auth)/login if unauthenticated.
+ * Redirects to /(auth)/login if unauthenticated or if the account
+ * role is not 'user' (admins/officers must use the web admin dashboard).
  */
 import React from "react";
 import { Text, View, ActivityIndicator } from "react-native";
@@ -14,7 +15,7 @@ function TabIcon({ icon }: { icon: string; color: string }) {
 }
 
 export default function AppLayout() {
-  const { user, loading } = useAuth();
+  const { user, profile, loading, isOffline } = useAuth();
   usePushNotifications(); // register for push + save token to profile
 
   if (loading) {
@@ -33,6 +34,13 @@ export default function AppLayout() {
   }
 
   if (!user) {
+    return <Redirect href="/(auth)/login" />;
+  }
+
+  // Block non-citizen accounts from the driver/citizen mobile app.
+  // Offline mode users are allowed through (profile may not yet be loaded).
+  // Admin, officer, and super_admin roles must use the web admin dashboard.
+  if (!isOffline && profile && profile.role !== "user") {
     return <Redirect href="/(auth)/login" />;
   }
 

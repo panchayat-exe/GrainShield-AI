@@ -70,7 +70,13 @@ export async function adminSignOut(): Promise<void> {
 export async function adminResetPassword(email: string): Promise<{ error: string | null }> {
   const cleanEmail = email.trim().toLowerCase();
   if (!cleanEmail) return { error: "Please enter your official email address." };
-  const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail);
+  // redirectTo ensures the reset link returns the user to the admin portal's
+  // own reset-password page, not the generic Supabase default.
+  const options =
+    typeof window !== "undefined"
+      ? { redirectTo: `${window.location.origin}/auth/reset-password` }
+      : {};
+  const { error } = await supabase.auth.resetPasswordForEmail(cleanEmail, options);
   return { error: error?.message ?? null };
 }
 
