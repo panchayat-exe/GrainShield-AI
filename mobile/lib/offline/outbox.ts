@@ -14,7 +14,7 @@
  */
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import * as FileSystem from "expo-file-system";
-import { upsertTrip } from "@/lib/services/trips";
+import { createCitizenTrip } from "@/lib/services/trips";
 import { uploadEvidence } from "@/lib/services/evidence";
 import { createPendingVerification } from "@/lib/services/verification";
 import type { TripStage } from "@/lib/supabase/types";
@@ -24,7 +24,7 @@ const OFFLINE_DIR_NAME = "grainshield_outbox/";
 
 export interface OutboxItem {
   id: string;
-  tripCode: string;
+  tripCode: string;  // 'PENDING' until synced online; replaced with GS-YYYY-NNNNNN after sync
   vehicleNumber: string;
   stage: TripStage;
   photoUri: string;
@@ -153,17 +153,27 @@ export async function removeOutboxItem(id: string): Promise<void> {
 export async function syncOutboxItem(
   item: OutboxItem,
   userId: string
-): Promise<{ success: boolean; tripId?: string; evidenceId?: string; error?: string }> {
+): Promise<{ success: boolean; tripId?: string; evidenceId?: string; tripCode?: string; error?: string }> {
   try {
-    // 1. Create / Upsert trip in Supabase
-    const { trip, error: tripErr } = await upsertTrip({
-      tripCode: item.tripCode,
+    // 1. Create trip via citizen_create_trip() RPC — backend assigns GS-YYYY-NNNNNN
+    //    (item.tripCode is "PENDING" for offline-queued items)
+    const { tripId: newTripId, tripCode: assignedCode, error: tripErr } = await createCitizenTrip({
       vehicleNumber: item.vehicleNumber,
       stage: item.stage,
-      userId,
     });
-    if (tripErr || !trip) {
+    if (tripErr || !newTripId) {
       return { success: false, error: tripErr ?? "Failed to create trip online" };
+    }
+
+    // Update outbox item's tripCode to reflect the system-assigned code
+    try {
+      const current = await getOutboxItems();
+      const updated = current.map((i) =>
+        i.id === item.id ? { ...i, tripCode: assignedCode, status: "syncing" as const } : i
+      );
+      await AsyncStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(updated));
+    } catch {
+      // Non-fatal: continue with sync even if status update fails
     }
 
     // 2. Upload persistent photo to Supabase Storage
@@ -172,7 +182,7 @@ export async function syncOutboxItem(
       mimeType: item.mimeType,
       fileSize: item.fileSize,
       fileName: item.originalFileName,
-      tripId: trip.id,
+      tripId: newTripId,
       stage: item.stage,
       userId,
     });
@@ -182,7 +192,7 @@ export async function syncOutboxItem(
 
     // 3. Create pending verification record
     const { error: verErr } = await createPendingVerification({
-      tripId: trip.id,
+      tripId: newTripId,
       evidenceId: evidence.id,
       expectedPlate: item.vehicleNumber,
     });
@@ -195,8 +205,9 @@ export async function syncOutboxItem(
 
     return {
       success: true,
-      tripId: trip.id,
+      tripId: newTripId,
       evidenceId: evidence.id,
+      tripCode: assignedCode,
     };
   } catch (err) {
     const msg = err instanceof Error ? err.message : "Sync failed";

@@ -123,6 +123,7 @@ function LeafletMap({
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<LeafletMapWrapper | null>(null);
   const markersRef = useRef<Record<string, Leaflet.Marker>>({});
+  const pinMarkersRef = useRef<Leaflet.Marker[]>([]);
 
   const GUJARAT_CENTER: [number, number] = [22.309, 72.136];
 
@@ -134,6 +135,8 @@ function LeafletMap({
   ) {
     Object.values(markersRef.current).forEach((m) => m.remove());
     markersRef.current = {};
+    pinMarkersRef.current.forEach((m) => m.remove());
+    pinMarkersRef.current = [];
 
     locs.forEach((loc) => {
       const color = stageColor[loc.stage] ?? "#6b7280";
@@ -160,6 +163,60 @@ function LeafletMap({
         )
         .on("click", () => onSelectFn(loc.tripId));
       markersRef.current[loc.tripId] = marker;
+    });
+
+    // ── Origin / Destination pins ───────────────────────────────────────────
+    locs.forEach((loc) => {
+      const originSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <rect x="1" y="1" width="18" height="18" rx="3" fill="#16a34a" stroke="white" stroke-width="1.5"/>
+        <text x="10" y="14" text-anchor="middle" font-size="10" fill="white" font-weight="bold">O</text>
+      </svg>`;
+      const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 20 20">
+        <rect x="1" y="1" width="18" height="18" rx="3" fill="#dc2626" stroke="white" stroke-width="1.5"/>
+        <text x="10" y="14" text-anchor="middle" font-size="10" fill="white" font-weight="bold">D</text>
+      </svg>`;
+
+      if (loc.originLat != null && loc.originLng != null) {
+        const originIcon = L.divIcon({
+          html: originSvg,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+          className: "",
+        });
+        const originMarker = L.marker([loc.originLat, loc.originLng], { icon: originIcon })
+          .addTo(map)
+          .bindPopup(
+            `<div style="font-size:12px"><b>Origin</b><br/>${loc.tripCode}<br/>${loc.origin ?? ""}</div>`,
+          );
+        pinMarkersRef.current.push(originMarker);
+      }
+
+      if (loc.destinationLat != null && loc.destinationLng != null) {
+        const destIcon = L.divIcon({
+          html: destSvg,
+          iconSize: [20, 20],
+          iconAnchor: [10, 10],
+          className: "",
+        });
+        const destMarker = L.marker([loc.destinationLat, loc.destinationLng], { icon: destIcon })
+          .addTo(map)
+          .bindPopup(
+            `<div style="font-size:12px"><b>Destination</b><br/>${loc.tripCode}<br/>${loc.destination ?? ""}</div>`,
+          );
+        pinMarkersRef.current.push(destMarker);
+
+        // Draw a dashed polyline from origin to destination if both exist
+        if (loc.originLat != null && loc.originLng != null) {
+          const line = L.polyline(
+            [
+              [loc.originLat, loc.originLng],
+              [loc.destinationLat, loc.destinationLng],
+            ],
+            { color: "#94a3b8", weight: 1.5, dashArray: "6 4", opacity: 0.6 },
+          ).addTo(map);
+          pinMarkersRef.current.push(line as unknown as Leaflet.Marker);
+        }
+      }
     });
   }
 
@@ -363,6 +420,18 @@ function Live() {
             <span className="flex items-center gap-2">
               <span className="h-3 w-3 rounded-full bg-success" />
               Last Mile (Green)
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="inline-flex h-3 w-3 items-center justify-center rounded bg-green-600 text-[8px] font-bold text-white">
+                O
+              </span>
+              Origin
+            </span>
+            <span className="flex items-center gap-2">
+              <span className="inline-flex h-3 w-3 items-center justify-center rounded bg-red-600 text-[8px] font-bold text-white">
+                D
+              </span>
+              Destination
             </span>
           </div>
         </div>

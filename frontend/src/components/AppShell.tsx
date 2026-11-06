@@ -16,9 +16,10 @@ import { Toaster } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotifications } from "@/hooks/use-notifications";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { getLang, setLang, langToggleLabel, type Lang } from "@/lib/i18n";
 
 const nav = [
-  { to: "/", label: "Upload Photo" },
+  { to: "/", label: "Submit Trip" },
   { to: "/my-trips", label: "My Trips" },
   { to: "/profile", label: "My Profile" },
   { to: "/help", label: "Help & FAQ" },
@@ -42,6 +43,13 @@ export function AppShell({
 }) {
   const [open, setOpen] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
+  const [lang, setLangState] = useState<Lang>(getLang());
+
+  function handleLangToggle() {
+    const next: Lang = lang === "en" ? "gu" : "en";
+    setLang(next);
+    setLangState(next);
+  }
   const { user, profile, loading, signOut } = useAuth();
   const { notifications, unreadCount, markAllRead, dismiss } = useNotifications(user?.id ?? null);
   const navigate = useNavigate();
@@ -72,7 +80,13 @@ export function AppShell({
             <Landmark className="h-3.5 w-3.5" />
             Government of Gujarat
           </span>
-          <span>English</span>
+          <button
+            onClick={handleLangToggle}
+            className="rounded px-1.5 py-0.5 text-[11px] font-semibold opacity-90 hover:bg-white/20 transition-colors"
+            title="Switch language / ભાષા બદલો"
+          >
+            {langToggleLabel()}
+          </button>
         </div>
         <div className="flex items-center gap-3 px-4 pb-3">
           <Wheat className="h-8 w-8 text-saffron" />

@@ -655,6 +655,70 @@ function Detail() {
             </ul>
           </Card>
 
+          {/* ── Operational Anomaly Alerts ── */}
+          {(() => {
+            const alerts: { level: "danger" | "warning"; msg: string }[] = [];
+
+            const inTransitStatuses = ["submitted", "processing", "manual_review"];
+            const isInTransit = trip && inTransitStatuses.includes(trip.status);
+
+            // 1. Stale GPS: in-transit trip with last ping > 10 minutes ago
+            if (isInTransit && locations && locations.length > 0) {
+              const lastPing = new Date(locations[locations.length - 1]?.recorded_at ?? 0);
+              const minsSincePing = Math.floor((Date.now() - lastPing.getTime()) / 60000);
+              if (minsSincePing > 10) {
+                alerts.push({
+                  level: "warning",
+                  msg: `⚠ Stale GPS — last signal was ${minsSincePing} minutes ago. Driver may have lost connectivity or the app is not running.`,
+                });
+              }
+            }
+
+            // 2. No GPS at all for in-transit trip
+            if (isInTransit && (!locations || locations.length === 0)) {
+              alerts.push({
+                level: "warning",
+                msg: "⚠ No GPS data recorded for this trip. Driver may not have started location sharing.",
+              });
+            }
+
+            // 3. Evidence count vs. expected checkpoints
+            if (trip && evidence) {
+              const stageCheckpoints: Record<string, number> = {
+                first_mile: 2,
+                mid_mile: 2,
+                last_mile: 2,
+              };
+              const expected = stageCheckpoints[trip.stage] ?? 0;
+              if (expected > 0 && evidence.length < expected) {
+                alerts.push({
+                  level: "warning",
+                  msg: `⚠ Missing evidence — ${evidence.length}/${expected} checkpoint photographs uploaded for ${trip.stage.replace("_", " ")} stage.`,
+                });
+              }
+            }
+
+            if (alerts.length === 0) return null;
+
+            return (
+              <div className="space-y-2 mb-1">
+                {alerts.map((a, i) => (
+                  <div
+                    key={i}
+                    className={`flex items-start gap-2 rounded-lg border p-3 text-sm ${
+                      a.level === "danger"
+                        ? "border-danger/40 bg-danger-soft text-danger"
+                        : "border-amber-300/50 bg-amber-50 text-amber-800"
+                    }`}
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <span>{a.msg}</span>
+                  </div>
+                ))}
+              </div>
+            );
+          })()}
+
           {/* GPS Tracking Telemetry */}
           <Card title={`GPS Tracking Trail (${locations?.length ?? 0} pings)`}>
             {locations && locations.length > 0 ? (

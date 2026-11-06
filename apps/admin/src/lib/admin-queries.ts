@@ -606,6 +606,10 @@ export type ActiveTripLocation = {
   status: TripStatus;
   origin: string | null;
   destination: string | null;
+  originLat: number | null; // from migration 025
+  originLng: number | null;
+  destinationLat: number | null;
+  destinationLng: number | null;
   latitude: number;
   longitude: number;
   accuracyMeters: number | null;
@@ -619,7 +623,7 @@ export async function getActiveTripLocations(): Promise<{
   const { data: trips, error: tripErr } = await supabase
     .from("trips")
     .select(
-      "id, trip_code, vehicle_number, driver_name, stage, status, origin, destination, updated_at",
+      "id, trip_code, vehicle_number, driver_name, stage, status, origin, destination, origin_lat, origin_lng, destination_lat, destination_lng, updated_at",
     )
     .or(
       // Active processing states + recently completed/passed (within 2 hours) for last-mile visibility
@@ -662,6 +666,10 @@ export async function getActiveTripLocations(): Promise<{
       status: trip.status as TripStatus,
       origin: trip.origin ?? null,
       destination: trip.destination ?? null,
+      originLat: (trip["origin_lat"] as number | null) ?? null,
+      originLng: (trip["origin_lng"] as number | null) ?? null,
+      destinationLat: (trip["destination_lat"] as number | null) ?? null,
+      destinationLng: (trip["destination_lng"] as number | null) ?? null,
       latitude: loc.latitude,
       longitude: loc.longitude,
       accuracyMeters: loc.accuracy_meters ?? null,
