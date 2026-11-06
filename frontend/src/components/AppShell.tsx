@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   Landmark,
   Menu,
@@ -43,7 +43,13 @@ export function AppShell({
 }) {
   const [open, setOpen] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
-  const [lang, setLangState] = useState<Lang>(getLang());
+  // Start with "en" on both SSR and client; sync to localStorage after hydration
+  const [lang, setLangState] = useState<Lang>("en");
+
+  useEffect(() => {
+    const stored = getLang();
+    setLangState(stored);
+  }, []);
 
   function handleLangToggle() {
     const next: Lang = lang === "en" ? "gu" : "en";
