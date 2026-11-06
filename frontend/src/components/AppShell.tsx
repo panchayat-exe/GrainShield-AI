@@ -95,15 +95,17 @@ export function AppShell({
           </button>
         </div>
         <div className="flex items-center gap-3 px-4 pb-3">
-          <Wheat className="h-8 w-8 text-saffron" />
-          <div className="min-w-0 flex-1">
-            <p className="text-lg font-bold leading-none tracking-tight">
-              GRAINSHIELD <span className="text-saffron">AI</span>
-            </p>
-            <p className="truncate text-[11px] opacity-80">
-              AI-Powered Food Grain Transport Verification
-            </p>
-          </div>
+          <Link to="/" className="flex items-center gap-3 min-w-0 flex-1">
+            <Wheat className="h-8 w-8 text-saffron shrink-0" />
+            <div className="min-w-0">
+              <p className="text-lg font-bold leading-none tracking-tight">
+                GRAINSHIELD <span className="text-saffron">AI</span>
+              </p>
+              <p className="truncate text-[11px] opacity-80">
+                AI-Powered Food Grain Transport Verification
+              </p>
+            </div>
+          </Link>
           <div className="flex items-center gap-2">
             {/* Notification bell */}
             {user && (

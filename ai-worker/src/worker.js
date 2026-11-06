@@ -479,6 +479,21 @@ async function processVerification(verification) {
           );
         } else {
           console.log(`[worker] Manual review request created for trip ${trip_id}`);
+          // Notify citizen: insert audit_log so useNotifications hook fires in citizen web app
+          await adminClient.from("audit_logs").insert({
+            actor_id: null,
+            action: "manual_review_requested",
+            entity_type: "manual_review_requests",
+            trip_id,
+            metadata: {
+              reason: cvResult.explanation ?? "AI could not automatically verify this trip.",
+              citizen_id: requestedBy,
+            },
+          }).then(({ error: auditErr }) => {
+            if (auditErr) {
+              console.warn("[worker] Could not write manual_review_requested audit log:", auditErr.message);
+            }
+          });
         }
       } else {
         console.warn(`[worker] Trip ${trip_id} has no created_by — skipping review request insert`);

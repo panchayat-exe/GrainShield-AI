@@ -178,9 +178,9 @@ export function AdminShell({
                       <p className="px-3 py-4 text-xs text-muted-foreground">No pending reviews.</p>
                     ) : (
                       recentReviews.map((r) => (
-                        <a
+                        <Link
                           key={r.id}
-                          href="/verification"
+                          to="/verification"
                           className="flex items-center justify-between px-3 py-2.5 text-xs hover:bg-muted/50"
                           onClick={() => setShowNotifPanel(false)}
                         >
@@ -193,7 +193,7 @@ export function AdminShell({
                               month: "short",
                             })}
                           </span>
-                        </a>
+                        </Link>
                       ))
                     )}
                   </div>

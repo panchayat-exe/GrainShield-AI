@@ -5,14 +5,9 @@ import {
   FileBarChart,
   History,
   MapPin,
-  Truck,
   ShieldCheck,
-  CheckCircle2,
-  AlertTriangle,
-  XCircle,
   ArrowUpRight,
 } from "lucide-react";
-import truck from "@/assets/truck.jpg";
 import { getDashboardStats } from "@/lib/admin-queries";
 import { supabase } from "@/lib/supabase";
 
@@ -36,7 +31,7 @@ export const Route = createFileRoute("/")({
 });
 
 const tiles = [
-  { to: "/trips", label: "Trips", desc: "All transport trips", icon: Truck },
+  { to: "/trips", label: "Trips", desc: "All transport trips", icon: ClipboardCheck },
   { to: "/verification", label: "Verification", desc: "Manual review queue", icon: ClipboardCheck },
   { to: "/live-tracking", label: "Live Tracking", desc: "Vehicles on the map", icon: MapPin },
   { to: "/reports", label: "Reports", desc: "District summaries", icon: FileBarChart },
@@ -78,31 +73,13 @@ function Home() {
       {/* Primary KPI Stats */}
       <section className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         {[
-          { label: "Total Trips", value: stats?.totalTrips ?? 0, icon: Truck, color: "text-navy" },
-          {
-            label: "Verified Pass",
-            value: stats?.passed ?? 0,
-            icon: CheckCircle2,
-            color: "text-success",
-          },
-          {
-            label: "Pending Review",
-            value: stats?.pendingReview ?? 0,
-            icon: AlertTriangle,
-            color: "text-warning",
-          },
-          {
-            label: "Rejected",
-            value: stats?.rejected ?? 0,
-            icon: XCircle,
-            color: "text-destructive",
-          },
+          { label: "Total Trips", value: stats?.totalTrips ?? 0, color: "text-navy" },
+          { label: "Verified Pass", value: stats?.passed ?? 0, color: "text-success" },
+          { label: "Pending Review", value: stats?.pendingReview ?? 0, color: "text-warning" },
+          { label: "Rejected", value: stats?.rejected ?? 0, color: "text-destructive" },
         ].map((s) => (
           <div key={s.label} className="rounded-lg border border-border bg-card p-4 shadow-card">
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>{s.label}</span>
-              <s.icon className={`h-4 w-4 ${s.color}`} />
-            </div>
+            <div className="text-sm text-muted-foreground">{s.label}</div>
             <div className={`mt-2 text-3xl font-bold ${s.color}`}>{s.value}</div>
           </div>
         ))}
@@ -151,13 +128,13 @@ function Home() {
             </Link>
           </div>
         </div>
-        <img
-          src={truck}
-          alt="Grain transport truck"
-          width={1024}
-          height={768}
-          className="h-full max-h-80 w-full object-cover"
-        />
+        <div className="hidden md:flex h-full max-h-80 w-full items-center justify-center bg-gradient-to-br from-primary/20 to-secondary/30 p-8">
+          <div className="text-center">
+            <div className="text-6xl mb-3">🌾</div>
+            <p className="text-sm font-medium text-muted-foreground">Government of Gujarat</p>
+            <p className="text-xs text-muted-foreground">Food, Civil Supplies &amp; Consumer Affairs</p>
+          </div>
+        </div>
       </section>
 
       <section className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">

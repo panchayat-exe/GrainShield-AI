@@ -26,7 +26,8 @@ export interface AppNotification {
 
 const ACTION_TITLES: Record<string, string> = {
   verification_completed: "Verification Complete",
-  manual_review_resolved: "Review Resolved",
+  manual_review_requested: "Sent for Manual Review",
+  manual_review_resolved: "Review Decision Received",
   trip_status_updated: "Trip Status Updated",
   trip_assigned: "Trip Assigned to You",
   evidence_uploaded: "Evidence Uploaded",
@@ -38,6 +39,7 @@ function toNotification(log: AuditLog): AppNotification {
   let body = "";
   if ("new_status" in meta) body = `Status changed to: ${String(meta["new_status"])}`;
   else if ("decision" in meta) body = `Decision: ${String(meta["decision"])}`;
+  else if ("reason" in meta) body = String(meta["reason"]);
   else body = title;
 
   return {
@@ -83,6 +85,7 @@ export function useNotifications(userId: string | null) {
           // Only surface events the user cares about
           const surfaced = [
             "verification_completed",
+            "manual_review_requested",
             "manual_review_resolved",
             "trip_assigned",
             "trip_status_updated",
