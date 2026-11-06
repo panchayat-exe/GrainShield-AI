@@ -22,13 +22,26 @@ import { OutboxBanner } from "@/components/OutboxBanner";
 import { Card } from "@/components/Card";
 import { Row } from "@/components/Row";
 import { useAuth } from "@/hooks/use-auth";
-import { getLatestVerification, subscribeToTripVerifications } from "@/lib/services/verification";
+import {
+  getLatestVerification,
+  subscribeToTripVerifications,
+} from "@/lib/services/verification";
 import { getTripById } from "@/lib/services/trips";
-import { getOutboxItems, syncOutboxItem, type OutboxItem } from "@/lib/offline/outbox";
+import {
+  getOutboxItems,
+  syncOutboxItem,
+  type OutboxItem,
+} from "@/lib/offline/outbox";
 import type { VerificationResult } from "@/lib/supabase/types";
 import { Colors, FontSizes, Spacing, Radius } from "@/constants/colors";
 
-const STEPS = ["Image Quality", "Vehicle Detection", "Plate OCR", "Evidence Checks", "Final Decision"];
+const STEPS = [
+  "Image Quality",
+  "Vehicle Detection",
+  "Plate OCR",
+  "Evidence Checks",
+  "Final Decision",
+];
 
 const STATUS_STEP: Record<string, number> = {
   pending: 0,
@@ -41,10 +54,15 @@ const STATUS_STEP: Record<string, number> = {
 
 export default function ProcessingScreen() {
   const router = useRouter();
-  const { tripId, outboxId } = useLocalSearchParams<{ tripId?: string; outboxId?: string }>();
+  const { tripId, outboxId } = useLocalSearchParams<{
+    tripId?: string;
+    outboxId?: string;
+  }>();
   const { user } = useAuth();
 
-  const [verification, setVerification] = useState<VerificationResult | null>(null);
+  const [verification, setVerification] = useState<VerificationResult | null>(
+    null,
+  );
   const [tripCode, setTripCode] = useState<string | null>(null);
   const [loadingInitial, setLoadingInitial] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -54,53 +72,56 @@ export default function ProcessingScreen() {
   const hasNavigated = useRef(false);
 
   // Load online trip or outbox item
-  const loadData = useCallback(async (isManualRefresh = false) => {
-    if (!isManualRefresh) setLoadingInitial(true);
+  const loadData = useCallback(
+    async (isManualRefresh = false) => {
+      if (!isManualRefresh) setLoadingInitial(true);
 
-    try {
-      // 1. If outboxId passed, load from local Outbox
-      if (outboxId) {
+      try {
+        // 1. If outboxId passed, load from local Outbox
+        if (outboxId) {
+          const items = await getOutboxItems();
+          const match = items.find((i) => i.id === outboxId);
+          if (match) {
+            setOutboxItem(match);
+            setTripCode(match.tripCode === "PENDING" ? null : match.tripCode);
+            setNotFound(false);
+            return;
+          }
+        }
+
+        // 2. If online tripId passed, load from Supabase
+        if (tripId) {
+          const [trip, result] = await Promise.all([
+            getTripById(tripId),
+            getLatestVerification(tripId),
+          ]);
+          if (!trip) {
+            setNotFound(true);
+          } else {
+            setTripCode(trip.trip_code);
+            setNotFound(false);
+          }
+          setVerification(result);
+          return;
+        }
+
+        // 3. Fallback: check if any outbox items exist
         const items = await getOutboxItems();
-        const match = items.find((i) => i.id === outboxId);
-        if (match) {
-          setOutboxItem(match);
-          setTripCode(match.tripCode);
+        if (items.length > 0) {
+          setOutboxItem(items[0]);
+          setTripCode(items[0].tripCode);
           setNotFound(false);
           return;
         }
-      }
 
-      // 2. If online tripId passed, load from Supabase
-      if (tripId) {
-        const [trip, result] = await Promise.all([
-          getTripById(tripId),
-          getLatestVerification(tripId),
-        ]);
-        if (!trip) {
-          setNotFound(true);
-        } else {
-          setTripCode(trip.trip_code);
-          setNotFound(false);
-        }
-        setVerification(result);
-        return;
+        setNotFound(true);
+      } finally {
+        setLoadingInitial(false);
+        setRefreshing(false);
       }
-
-      // 3. Fallback: check if any outbox items exist
-      const items = await getOutboxItems();
-      if (items.length > 0) {
-        setOutboxItem(items[0]);
-        setTripCode(items[0].tripCode);
-        setNotFound(false);
-        return;
-      }
-
-      setNotFound(true);
-    } finally {
-      setLoadingInitial(false);
-      setRefreshing(false);
-    }
-  }, [tripId, outboxId]);
+    },
+    [tripId, outboxId],
+  );
 
   useEffect(() => {
     void loadData();
@@ -123,7 +144,10 @@ export default function ProcessingScreen() {
   // Active polling fallback: every 2 seconds check Supabase while status is pending or processing
   useEffect(() => {
     if (!tripId) return;
-    if (verification && ["pass", "retake", "manual_review", "error"].includes(verification.status)) {
+    if (
+      verification &&
+      ["pass", "retake", "manual_review", "error"].includes(verification.status)
+    ) {
       return;
     }
 
@@ -147,7 +171,10 @@ export default function ProcessingScreen() {
     if (verification.status === "pass") {
       hasNavigated.current = true;
       const t = setTimeout(() => {
-        router.push({ pathname: "/(app)/result", params: { tripId: tripId ?? "" } });
+        router.push({
+          pathname: "/(app)/result",
+          params: { tripId: tripId ?? "" },
+        });
       }, 1000);
       return () => clearTimeout(t);
     } else if (
@@ -157,7 +184,10 @@ export default function ProcessingScreen() {
     ) {
       hasNavigated.current = true;
       const t = setTimeout(() => {
-        router.push({ pathname: "/(app)/failed", params: { tripId: tripId ?? "" } });
+        router.push({
+          pathname: "/(app)/failed",
+          params: { tripId: tripId ?? "" },
+        });
       }, 1000);
       return () => clearTimeout(t);
     }
@@ -169,10 +199,21 @@ export default function ProcessingScreen() {
     try {
       const res = await syncOutboxItem(outboxItem, user.id);
       if (res.success && res.tripId) {
-        Alert.alert("Success", "Evidence uploaded to Supabase cloud! Initiating AI verification.");
-        router.replace({ pathname: "/(app)/processing", params: { tripId: res.tripId } });
+        const codeMsg = res.tripCode ? `\nYour Trip ID: ${res.tripCode}` : "";
+        Alert.alert(
+          "\u2705 Upload Complete",
+          `Evidence uploaded successfully!${codeMsg}\n\nInitiating AI verification.`,
+        );
+        router.replace({
+          pathname: "/(app)/processing",
+          params: { tripId: res.tripId },
+        });
       } else {
-        Alert.alert("Sync Error", res.error ?? "Failed to connect to Supabase. Please verify your connection.");
+        Alert.alert(
+          "Sync Error",
+          res.error ??
+            "Failed to connect to Supabase. Please verify your connection.",
+        );
       }
     } finally {
       setSyncingOutbox(false);
@@ -184,7 +225,9 @@ export default function ProcessingScreen() {
       <SafeAreaView style={styles.safe}>
         <AppHeader />
         <View style={styles.center}>
-          <Text style={styles.muted}>Please sign in to view verification status.</Text>
+          <Text style={styles.muted}>
+            Please sign in to view verification status.
+          </Text>
         </View>
       </SafeAreaView>
     );
@@ -209,24 +252,48 @@ export default function ProcessingScreen() {
         <OutboxBanner />
         <ScrollView
           contentContainerStyle={styles.content}
-          refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+          refreshControl={
+            <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+          }
         >
           <Text style={styles.pageTitle}>Stored in Offline Outbox</Text>
           <Text style={styles.subtitle}>
-            This evidence is stored locally on this phone. Connect to the internet to submit for AI verification.
+            This evidence is stored locally on this phone. Connect to the
+            internet to submit for AI verification.
           </Text>
 
           <Card>
-            <Row label="Trip ID" value={outboxItem.tripCode} />
+            <Row
+              label="Trip ID"
+              value={
+                outboxItem.tripCode === "PENDING"
+                  ? "Will be assigned on sync"
+                  : outboxItem.tripCode
+              }
+            />
             <Row label="Vehicle No." value={outboxItem.vehicleNumber} />
-            <Row label="Trip Stage" value={outboxItem.stage.replace("_", " ").toUpperCase()} />
-            <Row label="Captured" value={new Date(outboxItem.createdAt).toLocaleTimeString()} />
-            <Row label="Status" value="Stored Offline (Ready to Sync)" tone="warning" />
+            <Row
+              label="Trip Stage"
+              value={outboxItem.stage.replace("_", " ").toUpperCase()}
+            />
+            <Row
+              label="Captured"
+              value={new Date(outboxItem.createdAt).toLocaleTimeString()}
+            />
+            <Row
+              label="Status"
+              value="Stored Offline (Ready to Sync)"
+              tone="warning"
+            />
           </Card>
 
           {outboxItem.photoUri && (
             <Card title="Captured Evidence">
-              <Image source={{ uri: outboxItem.photoUri }} style={styles.photoPreview} resizeMode="cover" />
+              <Image
+                source={{ uri: outboxItem.photoUri }}
+                style={styles.photoPreview}
+                resizeMode="cover"
+              />
             </Card>
           )}
 
@@ -276,10 +343,14 @@ export default function ProcessingScreen() {
       <OutboxBanner />
       <ScrollView
         contentContainerStyle={styles.content}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={handleRefresh} />
+        }
       >
         <Text style={styles.pageTitle}>AI Verification in Progress</Text>
-        <Text style={styles.subtitle}>Analyzing your image. Results will update automatically.</Text>
+        <Text style={styles.subtitle}>
+          Analyzing your image. Results will update automatically.
+        </Text>
 
         {tripCode && (
           <Text style={styles.tripRef}>
@@ -289,11 +360,26 @@ export default function ProcessingScreen() {
 
         <Card>
           {STEPS.map((s, i) => {
-            const stepStatus = isDone || i < activeStep ? "done" : i === activeStep ? "run" : "wait";
+            const stepStatus =
+              isDone || i < activeStep
+                ? "done"
+                : i === activeStep
+                  ? "run"
+                  : "wait";
             return (
-              <View key={s} style={[styles.stepRow, stepStatus === "run" && styles.stepRowActive]}>
+              <View
+                key={s}
+                style={[
+                  styles.stepRow,
+                  stepStatus === "run" && styles.stepRowActive,
+                ]}
+              >
                 <Text style={styles.stepIcon}>
-                  {stepStatus === "done" ? "✅" : stepStatus === "run" ? "⏳" : "⭕"}
+                  {stepStatus === "done"
+                    ? "✅"
+                    : stepStatus === "run"
+                      ? "⏳"
+                      : "⭕"}
                 </Text>
                 <Text style={styles.stepLabel}>{s}</Text>
                 <Text
@@ -304,7 +390,11 @@ export default function ProcessingScreen() {
                     stepStatus === "wait" && { color: Colors.warning },
                   ]}
                 >
-                  {stepStatus === "done" ? "Done" : stepStatus === "run" ? "Running…" : "Pending"}
+                  {stepStatus === "done"
+                    ? "Done"
+                    : stepStatus === "run"
+                      ? "Running…"
+                      : "Pending"}
                 </Text>
               </View>
             );
@@ -312,16 +402,23 @@ export default function ProcessingScreen() {
         </Card>
 
         {/* Progress bar */}
-        <Card style={{ backgroundColor: Colors.infoSoft, borderColor: Colors.info }}>
+        <Card
+          style={{ backgroundColor: Colors.infoSoft, borderColor: Colors.info }}
+        >
           <Text style={styles.progressLabel}>
             {isDone
               ? status === "pass"
                 ? "Verification Passed ✓"
                 : "Verification Complete — Redirecting..."
-              : STEPS[activeStep] ?? "Queued"}
+              : (STEPS[activeStep] ?? "Queued")}
           </Text>
           <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${progressPct}%` as `${number}%` }]} />
+            <View
+              style={[
+                styles.progressFill,
+                { width: `${progressPct}%` as `${number}%` },
+              ]}
+            />
           </View>
           <Text style={styles.progressPct}>{progressPct}%</Text>
         </Card>
@@ -342,7 +439,8 @@ export default function ProcessingScreen() {
         {!isDone && status === "pending" && (
           <View style={styles.warningBox}>
             <Text style={styles.warningText}>
-              ⏳ Verification is queued. The AI processor checks every few seconds.
+              ⏳ Verification is queued. The AI processor checks every few
+              seconds.
             </Text>
           </View>
         )}
@@ -354,9 +452,22 @@ export default function ProcessingScreen() {
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: Colors.background },
   content: { padding: Spacing[4], gap: Spacing[3] },
-  center: { flex: 1, alignItems: "center", justifyContent: "center", padding: Spacing[4] },
-  muted: { color: Colors.mutedForeground, fontSize: FontSizes.sm, textAlign: "center" },
-  pageTitle: { fontSize: FontSizes.xl, fontWeight: "800", color: Colors.foreground },
+  center: {
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing[4],
+  },
+  muted: {
+    color: Colors.mutedForeground,
+    fontSize: FontSizes.sm,
+    textAlign: "center",
+  },
+  pageTitle: {
+    fontSize: FontSizes.xl,
+    fontWeight: "800",
+    color: Colors.foreground,
+  },
   subtitle: { fontSize: FontSizes.sm, color: Colors.mutedForeground },
   tripRef: { fontSize: FontSizes.sm, color: Colors.mutedForeground },
   tripCode: { fontWeight: "700", color: Colors.foreground },
@@ -367,14 +478,38 @@ const styles = StyleSheet.create({
     borderBottomWidth: 1,
     borderBottomColor: Colors.border,
   },
-  stepRowActive: { backgroundColor: Colors.infoSoft, borderRadius: Radius.sm, paddingHorizontal: Spacing[2] },
+  stepRowActive: {
+    backgroundColor: Colors.infoSoft,
+    borderRadius: Radius.sm,
+    paddingHorizontal: Spacing[2],
+  },
   stepIcon: { fontSize: 16, width: 28 },
-  stepLabel: { flex: 1, fontSize: FontSizes.sm, color: Colors.foreground, fontWeight: "500" },
+  stepLabel: {
+    flex: 1,
+    fontSize: FontSizes.sm,
+    color: Colors.foreground,
+    fontWeight: "500",
+  },
   stepStatus: { fontSize: FontSizes.xs, fontWeight: "600" },
-  progressLabel: { fontSize: FontSizes.sm, fontWeight: "600", color: Colors.info, marginBottom: Spacing[2] },
-  progressTrack: { height: 8, backgroundColor: Colors.border, borderRadius: 4, overflow: "hidden" },
+  progressLabel: {
+    fontSize: FontSizes.sm,
+    fontWeight: "600",
+    color: Colors.info,
+    marginBottom: Spacing[2],
+  },
+  progressTrack: {
+    height: 8,
+    backgroundColor: Colors.border,
+    borderRadius: 4,
+    overflow: "hidden",
+  },
   progressFill: { height: 8, backgroundColor: Colors.info, borderRadius: 4 },
-  progressPct: { fontSize: FontSizes.xs, color: Colors.mutedForeground, marginTop: 4, textAlign: "right" },
+  progressPct: {
+    fontSize: FontSizes.xs,
+    color: Colors.mutedForeground,
+    marginTop: 4,
+    textAlign: "right",
+  },
   warningBox: {
     backgroundColor: Colors.warningSoft,
     borderWidth: 1,
@@ -393,7 +528,12 @@ const styles = StyleSheet.create({
   },
   errorText: { color: Colors.danger, fontSize: FontSizes.sm },
   link: { color: Colors.info, fontWeight: "600", fontSize: FontSizes.sm },
-  photoPreview: { width: "100%", height: 200, borderRadius: Radius.md, marginTop: Spacing[2] },
+  photoPreview: {
+    width: "100%",
+    height: 200,
+    borderRadius: Radius.md,
+    marginTop: Spacing[2],
+  },
   syncButton: {
     height: 48,
     borderRadius: Radius.lg,

@@ -110,15 +110,15 @@ const faqs: FaqItem[] = [
   },
   {
     q: "I got a Retake result. How do I resubmit?",
-    a: "Go back to the Upload Photo screen, select the same trip from the dropdown, select the same stage, and upload a new, clearer photograph. Make sure the number plate is clearly visible and not blurred.",
+    a: "Open the Submit Trip screen, enter the same vehicle number, select the same trip stage, and upload a new, clearer photograph. A new Trip ID will be automatically generated for the resubmission. Make sure the number plate is clearly visible and well-lit.",
   },
   {
     q: "Why does the app need my location?",
     a: "GrainShield AI records your GPS coordinates at each checkpoint to verify that the vehicle was physically present at the correct location. Location data is only collected while tracking is active during a trip.",
   },
   {
-    q: "I cannot find my trip in the dropdown. What should I do?",
-    a: "Trips are created by your dispatch officer. Contact the GrainShield officer for your district and ask them to register the trip and assign it to your profile.",
+    q: "I cannot find my trip in My Trips. What should I do?",
+    a: "Trips you submit are automatically listed under My Trips once submitted. If a trip is missing, it may have been created under a different account. Contact your district GrainShield officer for assistance.",
   },
   {
     q: "How do I contact support?",

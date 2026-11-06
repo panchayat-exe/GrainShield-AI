@@ -24,7 +24,7 @@ const OFFLINE_DIR_NAME = "grainshield_outbox/";
 
 export interface OutboxItem {
   id: string;
-  tripCode: string;  // 'PENDING' until synced online; replaced with GS-YYYY-NNNNNN after sync
+  tripCode: string; // 'PENDING' until synced online; replaced with GS-YYYY-NNNNNN after sync
   vehicleNumber: string;
   stage: TripStage;
   photoUri: string;
@@ -84,7 +84,8 @@ export async function saveToOutbox(params: {
   fileSize?: number;
 }): Promise<{ item: OutboxItem | null; error: string | null }> {
   try {
-    const id = "outbox_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
+    const id =
+      "outbox_" + Math.random().toString(36).slice(2) + Date.now().toString(36);
     const mimeType = params.mimeType ?? "image/jpeg";
     const ext = params.originalFileName?.split(".").pop() ?? "jpg";
     const persistentFileName = `${id}.${ext}`;
@@ -119,7 +120,8 @@ export async function saveToOutbox(params: {
 
     return { item: newItem, error: null };
   } catch (err) {
-    const msg = err instanceof Error ? err.message : "Failed to save offline evidence.";
+    const msg =
+      err instanceof Error ? err.message : "Failed to save offline evidence.";
     console.error("[outbox] saveToOutbox error:", msg);
     return { item: null, error: msg };
   }
@@ -152,24 +154,43 @@ export async function removeOutboxItem(id: string): Promise<void> {
  */
 export async function syncOutboxItem(
   item: OutboxItem,
-  userId: string
-): Promise<{ success: boolean; tripId?: string; evidenceId?: string; tripCode?: string; error?: string }> {
+  userId: string,
+): Promise<{
+  success: boolean;
+  tripId?: string;
+  evidenceId?: string;
+  tripCode?: string;
+  error?: string;
+}> {
   try {
     // 1. Create trip via citizen_create_trip() RPC — backend assigns GS-YYYY-NNNNNN
     //    (item.tripCode is "PENDING" for offline-queued items)
-    const { tripId: newTripId, tripCode: assignedCode, error: tripErr } = await createCitizenTrip({
+    const {
+      tripId: newTripId,
+      tripCode: assignedCode,
+      error: tripErr,
+    } = await createCitizenTrip({
       vehicleNumber: item.vehicleNumber,
       stage: item.stage,
     });
     if (tripErr || !newTripId) {
-      return { success: false, error: tripErr ?? "Failed to create trip online" };
+      return {
+        success: false,
+        error: tripErr ?? "Failed to create trip online",
+      };
     }
 
     // Update outbox item's tripCode to reflect the system-assigned code
     try {
       const current = await getOutboxItems();
       const updated = current.map((i) =>
-        i.id === item.id ? { ...i, tripCode: assignedCode, status: "syncing" as const } : i
+        i.id === item.id
+          ? {
+              ...i,
+              tripCode: assignedCode ?? "PENDING",
+              status: "syncing" as const,
+            }
+          : i,
       );
       await AsyncStorage.setItem(OUTBOX_STORAGE_KEY, JSON.stringify(updated));
     } catch {
@@ -234,7 +255,7 @@ export async function syncAllOutbox(userId: string): Promise<{
       synced++;
     } else {
       failed++;
-      if (res.error) errors.push(`${item.tripCode}: ${res.error}`);
+      if (res.error) errors.push(`${item.vehicleNumber}: ${res.error}`);
     }
   }
 
