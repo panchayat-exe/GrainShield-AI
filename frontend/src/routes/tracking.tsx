@@ -1,7 +1,6 @@
 import { createFileRoute } from "@tanstack/react-router";
 import { useEffect, useState, useRef } from "react";
 import {
-  MapPin,
   Search,
   Loader2,
   AlertTriangle,
@@ -10,7 +9,6 @@ import {
   CheckCircle2,
 } from "lucide-react";
 import { AppShell, Card, Row } from "@/components/AppShell";
-import map from "@/assets/map.jpg";
 import { useAuth } from "@/hooks/use-auth";
 import { useGpsTracking } from "@/hooks/use-gps-tracking";
 import { getLatestLocation, getEvidenceForTrip, subscribeToLocations } from "@/lib/services";
@@ -18,6 +16,8 @@ import { getSignedUrl } from "@/lib/services/evidence";
 import { formatTimestamp } from "@/lib/services/audit";
 import type { Trip, TripLocation, TripEvidence } from "@/lib/supabase/types";
 import { supabase } from "@/lib/supabase/client";
+import type * as L from "leaflet";
+import "leaflet/dist/leaflet.css";
 
 export const Route = createFileRoute("/tracking")({
   head: () => ({
@@ -31,6 +31,180 @@ export const Route = createFileRoute("/tracking")({
   }),
   component: Tracking,
 });
+
+// Gujarat center
+const GUJARAT_CENTER: [number, number] = [22.309, 72.136];
+
+interface LeafletMapWrapper {
+  map: L.Map;
+  L: typeof L;
+  vehicleMarker?: L.Marker | null;
+  originMarker?: L.Marker | null;
+  destinationMarker?: L.Marker | null;
+  routeLine?: L.Polyline | null;
+}
+
+/** Real Leaflet map showing trip origin → vehicle location → destination */
+function TripMap({ trip, location }: { trip: Trip | null; location: TripLocation | null }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<LeafletMapWrapper | null>(null);
+
+  useEffect(() => {
+    if (!mapRef.current) return;
+    if (mapInstanceRef.current) return;
+
+    import("leaflet").then((L) => {
+      delete (L.Icon.Default.prototype as unknown as { _getIconUrl?: unknown })._getIconUrl;
+      L.Icon.Default.mergeOptions({
+        iconRetinaUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon-2x.png",
+        iconUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-icon.png",
+        shadowUrl: "https://unpkg.com/leaflet@1.9.4/dist/images/marker-shadow.png",
+      });
+
+      const map = L.map(mapRef.current!, {
+        center: GUJARAT_CENTER,
+        zoom: 7,
+        zoomControl: true,
+      });
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+        maxZoom: 19,
+      }).addTo(map);
+
+      mapInstanceRef.current = { map, L };
+    });
+
+    return () => {
+      mapInstanceRef.current?.map?.remove();
+      mapInstanceRef.current = null;
+    };
+  }, []);
+
+  // Update markers and route corridor when location or trip changes
+  useEffect(() => {
+    if (!mapInstanceRef.current) return;
+    const { map, L } = mapInstanceRef.current;
+
+    // Remove existing markers & lines
+    if (mapInstanceRef.current.vehicleMarker) {
+      mapInstanceRef.current.vehicleMarker.remove();
+      mapInstanceRef.current.vehicleMarker = null;
+    }
+    if (mapInstanceRef.current.originMarker) {
+      mapInstanceRef.current.originMarker.remove();
+      mapInstanceRef.current.originMarker = null;
+    }
+    if (mapInstanceRef.current.destinationMarker) {
+      mapInstanceRef.current.destinationMarker.remove();
+      mapInstanceRef.current.destinationMarker = null;
+    }
+    if (mapInstanceRef.current.routeLine) {
+      mapInstanceRef.current.routeLine.remove();
+      mapInstanceRef.current.routeLine = null;
+    }
+
+    if (!trip && !location) {
+      map.setView(GUJARAT_CENTER, 7, { animate: true });
+      return;
+    }
+
+    const bounds: [number, number][] = [];
+
+    // 1. Origin Marker
+    if (trip?.origin_lat != null && trip?.origin_lng != null) {
+      const originSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+        <rect x="1" y="1" width="20" height="20" rx="4" fill="#16a34a" stroke="white" stroke-width="2"/>
+        <text x="11" y="15" text-anchor="middle" font-size="11" fill="white" font-weight="bold">O</text>
+      </svg>`;
+      const oIcon = L.divIcon({
+        html: originSvg,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        className: "",
+      });
+      const oMarker = L.marker([trip.origin_lat, trip.origin_lng], { icon: oIcon })
+        .addTo(map)
+        .bindPopup(`<b>Origin (Mandi)</b><br/>${trip.origin ?? ""}`);
+      mapInstanceRef.current.originMarker = oMarker;
+      bounds.push([trip.origin_lat, trip.origin_lng]);
+    }
+
+    // 2. Destination Marker
+    if (trip?.destination_lat != null && trip?.destination_lng != null) {
+      const destSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="22" height="22" viewBox="0 0 22 22">
+        <rect x="1" y="1" width="20" height="20" rx="4" fill="#dc2626" stroke="white" stroke-width="2"/>
+        <text x="11" y="15" text-anchor="middle" font-size="11" fill="white" font-weight="bold">D</text>
+      </svg>`;
+      const dIcon = L.divIcon({
+        html: destSvg,
+        iconSize: [22, 22],
+        iconAnchor: [11, 11],
+        className: "",
+      });
+      const dMarker = L.marker([trip.destination_lat, trip.destination_lng], { icon: dIcon })
+        .addTo(map)
+        .bindPopup(`<b>Destination (Godown / FPS)</b><br/>${trip.destination ?? ""}`);
+      mapInstanceRef.current.destinationMarker = dMarker;
+      bounds.push([trip.destination_lat, trip.destination_lng]);
+    }
+
+    // 3. Vehicle Live Location Marker
+    if (location) {
+      const vSvg = `<svg xmlns="http://www.w3.org/2000/svg" width="28" height="36" viewBox="0 0 28 36">
+        <path d="M14 0C6.27 0 0 6.27 0 14c0 9.33 14 22 14 22S28 23.33 28 14C28 6.27 21.73 0 14 0z" fill="#3b82f6" stroke="white" stroke-width="2"/>
+        <circle cx="14" cy="14" r="6" fill="white"/>
+      </svg>`;
+      const icon = L.divIcon({
+        html: vSvg,
+        iconSize: [28, 36],
+        iconAnchor: [14, 36],
+        className: "",
+      });
+      const marker = L.marker([location.latitude, location.longitude], { icon })
+        .addTo(map)
+        .bindPopup(`<b>${trip?.trip_code ?? "Vehicle"}</b><br/>${trip?.vehicle_number ?? ""}`);
+      mapInstanceRef.current.vehicleMarker = marker;
+      bounds.push([location.latitude, location.longitude]);
+    }
+
+    // 4. Planned corridor line if both coordinates exist
+    if (
+      trip?.origin_lat != null &&
+      trip?.origin_lng != null &&
+      trip?.destination_lat != null &&
+      trip?.destination_lng != null
+    ) {
+      const line = L.polyline(
+        [
+          [trip.origin_lat, trip.origin_lng],
+          [trip.destination_lat, trip.destination_lng],
+        ],
+        { color: "#3b82f6", weight: 2, dashArray: "5 5", opacity: 0.7 },
+      ).addTo(map);
+      mapInstanceRef.current.routeLine = line;
+    }
+
+    if (bounds.length > 1) {
+      map.fitBounds(bounds, { padding: [40, 40], maxZoom: 14 });
+    } else if (bounds.length === 1 && bounds[0]) {
+      map.setView(bounds[0], 12, { animate: true });
+    }
+  }, [location, trip]);
+
+  return (
+    <div className="relative overflow-hidden rounded-2xl border border-border">
+      <div ref={mapRef} style={{ height: "320px", width: "100%" }} />
+      {!trip && (
+        <div className="absolute inset-0 flex items-center justify-center bg-foreground/5 pointer-events-none">
+          <p className="rounded-lg bg-card px-3 py-2 text-sm text-muted-foreground shadow">
+            Search for a trip to see its location
+          </p>
+        </div>
+      )}
+    </div>
+  );
+}
 
 function Tracking() {
   const { user } = useAuth();
@@ -169,51 +343,8 @@ function Tracking() {
         </>
       )}
 
-      {/* Map */}
-      <div className="relative overflow-hidden rounded-2xl border border-border">
-        <img
-          src={map}
-          alt="Route map"
-          width={768}
-          height={1024}
-          className="aspect-square w-full object-cover"
-        />
-        {trip && (
-          <>
-            <svg
-              viewBox="0 0 100 100"
-              className="absolute inset-0 h-full w-full"
-              preserveAspectRatio="none"
-            >
-              <path
-                d="M28 20 C35 30, 30 40, 42 50 S 45 70, 60 85"
-                fill="none"
-                stroke="var(--info)"
-                strokeWidth="1.5"
-                strokeLinecap="round"
-              />
-            </svg>
-            <MapPin className="absolute left-[24%] top-[13%] h-7 w-7 fill-success text-card" />
-            {latestLocation && (
-              <span className="absolute left-[38%] top-[44%] h-4 w-4 animate-pulse rounded-full border-2 border-card bg-info" />
-            )}
-            {tracking && (
-              <span className="absolute left-[38%] top-[44%] h-4 w-4 animate-ping rounded-full bg-success opacity-75" />
-            )}
-            <div className="absolute left-[42%] top-[34%] rounded-md bg-foreground px-2 py-1 text-[10px] text-card">
-              {trip.trip_code}
-            </div>
-            <MapPin className="absolute left-[56%] top-[78%] h-7 w-7 fill-danger text-card" />
-          </>
-        )}
-        {!trip && (
-          <div className="absolute inset-0 flex items-center justify-center bg-foreground/5">
-            <p className="rounded-lg bg-card px-3 py-2 text-sm text-muted-foreground shadow">
-              Search for a trip to see its location
-            </p>
-          </div>
-        )}
-      </div>
+      {/* Real Leaflet Map */}
+      <TripMap trip={trip} location={latestLocation} />
 
       {trip ? (
         <>

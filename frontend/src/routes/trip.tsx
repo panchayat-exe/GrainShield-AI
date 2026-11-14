@@ -1,6 +1,15 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useState } from "react";
-import { CheckCircle2, ClipboardList, Loader2, XCircle, Clock } from "lucide-react";
+import {
+  CheckCircle2,
+  ClipboardList,
+  Loader2,
+  XCircle,
+  Clock,
+  RefreshCcw,
+  AlertTriangle,
+  Bell,
+} from "lucide-react";
 import { AppShell, Card, Row } from "@/components/AppShell";
 import { useAuth } from "@/hooks/use-auth";
 import { getTripById } from "@/lib/services/trips";
@@ -8,6 +17,7 @@ import { getEvidenceForTrip, getSignedUrl } from "@/lib/services/evidence";
 import { getVerificationsForTrip } from "@/lib/services/verification";
 import { getAuditLogsForTrip, auditActionLabel, formatTimestamp } from "@/lib/services/audit";
 import type { Trip, TripEvidence, VerificationResult, AuditLog } from "@/lib/supabase/types";
+import { supabase } from "@/lib/supabase/client";
 
 export const Route = createFileRoute("/trip")({
   validateSearch: (s: Record<string, unknown>) => ({
@@ -59,6 +69,11 @@ function Trip() {
   const [photoUrls, setPhotoUrls] = useState<Record<string, string>>({});
   const [loading, setLoading] = useState(true);
   const [notFound, setNotFound] = useState(false);
+  const [prevStatus, setPrevStatus] = useState<string | null>(null);
+  const [statusBanner, setStatusBanner] = useState<{
+    msg: string;
+    type: "retake" | "rejected" | "pass" | "info";
+  } | null>(null);
 
   useEffect(() => {
     if (!tripId || !user) {
@@ -97,9 +112,107 @@ function Trip() {
     })();
   }, [tripId, user]);
 
+  // Realtime + polling: refresh trip status when trip is in an active/processing state
+  useEffect(() => {
+    const activeStatuses = ["submitted", "processing", "manual_review"];
+    if (!tripId || !user || !trip) return;
+    if (!activeStatuses.includes(trip.status)) return;
+
+    const pollId = setInterval(async () => {
+      const [updated, verArr, logs] = await Promise.all([
+        getTripById(tripId),
+        getVerificationsForTrip(tripId),
+        getAuditLogsForTrip(tripId),
+      ]);
+      if (updated) setTrip(updated);
+      setVerifications(verArr);
+      setAuditLogs(logs);
+    }, 30_000);
+
+    const channel = supabase
+      .channel(`trip-status-${tripId}`)
+      .on(
+        "postgres_changes",
+        { event: "UPDATE", schema: "public", table: "trips", filter: `id=eq.${tripId}` },
+        async (payload) => {
+          const updated = payload.new as Trip;
+          if (updated) setTrip(updated);
+          const [verArr, logs] = await Promise.all([
+            getVerificationsForTrip(tripId),
+            getAuditLogsForTrip(tripId),
+          ]);
+          setVerifications(verArr);
+          setAuditLogs(logs);
+        },
+      )
+      .subscribe();
+
+    return () => {
+      clearInterval(pollId);
+      void supabase.removeChannel(channel);
+    };
+  }, [tripId, user, trip?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Show status-change notification banner when trip status changes
+  useEffect(() => {
+    if (!trip) return;
+    if (prevStatus && prevStatus !== trip.status) {
+      const banners: Record<
+        string,
+        { msg: string; type: "retake" | "rejected" | "pass" | "info" }
+      > = {
+        retake: { msg: "Retake Required — please re-upload a clearer photo.", type: "retake" },
+        rejected: {
+          msg: "Trip has been rejected by an officer. Contact your supervisor.",
+          type: "rejected",
+        },
+        pass: { msg: "Verification passed! Your trip evidence has been approved.", type: "pass" },
+        completed: { msg: "Trip completed successfully.", type: "pass" },
+        manual_review: { msg: "Your submission is under officer review.", type: "info" },
+      };
+      const banner = banners[trip.status];
+      if (banner) setStatusBanner(banner);
+    }
+    setPrevStatus(trip.status);
+  }, [trip?.status]); // eslint-disable-line react-hooks/exhaustive-deps
+
   if (!user) {
     return (
       <AppShell crumbs={["Home", "Trip Verification"]} title="Trip Photo Verification">
+        {statusBanner && (
+          <div
+            className={`flex items-start gap-3 rounded-2xl border p-4 text-sm ${
+              statusBanner.type === "retake"
+                ? "border-saffron/60 bg-warning-soft text-warning"
+                : statusBanner.type === "rejected"
+                  ? "border-danger/60 bg-danger-soft text-danger"
+                  : statusBanner.type === "pass"
+                    ? "border-success/60 bg-success-soft text-success"
+                    : "border-info/40 bg-info-soft text-info"
+            }`}
+          >
+            <Bell className="mt-0.5 h-5 w-5 shrink-0" />
+            <span className="flex-1">{statusBanner.msg}</span>
+            <button
+              onClick={() => setStatusBanner(null)}
+              className="shrink-0 text-xs underline opacity-70"
+            >
+              Dismiss
+            </button>
+          </div>
+        )}
+        {trip?.status === "retake" && (
+          <div className="flex items-start gap-3 rounded-2xl border border-saffron/60 bg-warning-soft p-4">
+            <RefreshCcw className="mt-0.5 h-6 w-6 shrink-0 text-warning" />
+            <div>
+              <p className="font-semibold text-warning">Retake Required</p>
+              <p className="mt-1 text-sm text-muted-foreground">
+                An officer needs you to re-submit a clearer photo. Go to the upload screen to try
+                again.
+              </p>
+            </div>
+          </div>
+        )}
         <div className="rounded-2xl border border-info/30 bg-info-soft p-4 text-sm text-center">
           Please{" "}
           <Link to="/login" className="text-info underline">
@@ -264,7 +377,7 @@ function Trip() {
                       isPass
                         ? "bg-success text-maroon-foreground"
                         : isManual
-                          ? "bg-maroon text-maroon-foreground"
+                          ? "bg-warning text-white"
                           : "bg-saffron text-saffron-foreground"
                     }`}
                   >

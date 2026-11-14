@@ -1,4 +1,4 @@
-# GrainShield AI — Computer Vision Model Dependencies
+# GrainShield AI -- Python dependencies
 ultralytics>=8.3.0
 torch>=2.0.0
 torchvision>=0.15.0
@@ -6,5 +6,8 @@ opencv-python-headless>=4.8.0
 pyyaml>=6.0
 pytesseract>=0.3.10
 fastapi>=0.110.0
-uvicorn>=0.28.0
+uvicorn[standard]>=0.28.0
 python-multipart>=0.0.9
+slowapi>=0.1.9
+huggingface-hub>=0.23.0
+Pillow>=10.0.0

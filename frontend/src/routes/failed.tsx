@@ -197,18 +197,40 @@ function Failed() {
 
   const attempt = 1; // In a full implementation, count previous attempts
 
+  const isManualReview = verification.status === "manual_review";
+  const isRetake = verification.status === "retake";
+
   return (
     <AppShell crumbs={["Home", "Trip Verification", "Result"]} title="Verification Result">
-      <div className="flex items-center gap-4 rounded-2xl border border-danger/40 bg-danger-soft p-4">
-        <XCircle className="h-12 w-12 shrink-0 text-danger" />
+      {/* Status banner — amber for manual_review/retake, red for hard fail/rejected */}
+      <div
+        className={`flex items-center gap-4 rounded-2xl border p-4 ${
+          isManualReview || isRetake
+            ? "border-saffron/50 bg-warning-soft"
+            : "border-danger/40 bg-danger-soft"
+        }`}
+      >
+        {isManualReview ? (
+          <UserCheck className={`h-12 w-12 shrink-0 text-warning`} />
+        ) : isRetake ? (
+          <RotateCcw className={`h-12 w-12 shrink-0 text-warning`} />
+        ) : (
+          <XCircle className="h-12 w-12 shrink-0 text-danger" />
+        )}
         <div>
-          <p className="text-3xl font-bold text-danger">
-            {verification.status === "manual_review" ? "MANUAL REVIEW" : "FAILED"}
+          <p
+            className={`text-3xl font-bold ${
+              isManualReview || isRetake ? "text-warning" : "text-danger"
+            }`}
+          >
+            {isManualReview ? "UNDER REVIEW" : isRetake ? "RETAKE REQUIRED" : "FAILED"}
           </p>
-          <p className="text-sm text-danger">
-            {verification.status === "manual_review"
-              ? "Sent for manual review"
-              : "Photo could not be verified"}
+          <p className={`text-sm ${isManualReview || isRetake ? "text-warning" : "text-danger"}`}>
+            {isManualReview
+              ? "An officer will manually review your submission"
+              : isRetake
+                ? "Please retake the photo and resubmit"
+                : "Photo could not be verified"}
           </p>
         </div>
       </div>
@@ -223,7 +245,9 @@ function Failed() {
         />
       )}
 
-      <Card title="Failure Reasons">
+      <Card
+        title={isManualReview ? "Review Findings" : isRetake ? "Retake Reasons" : "Failure Reasons"}
+      >
         {failureReasons.map((r) => (
           <Row
             key={r.label}
@@ -275,22 +299,24 @@ function Failed() {
           <RotateCcw className="h-5 w-5" />
           Retake Photo
         </button>
-        <button
-          className={btn.maroon}
-          onClick={() => {
-            void handleManualReview();
-          }}
-          disabled={reviewLoading || reviewMessage?.ok === true}
-        >
-          {reviewLoading ? (
-            <Loader2 className="h-5 w-5 animate-spin" />
-          ) : (
-            <>
-              <UserCheck className="h-5 w-5" />
-              Send for Manual Review
-            </>
-          )}
-        </button>
+        {!isManualReview && (
+          <button
+            className={btn.maroon}
+            onClick={() => {
+              void handleManualReview();
+            }}
+            disabled={reviewLoading || reviewMessage?.ok === true}
+          >
+            {reviewLoading ? (
+              <Loader2 className="h-5 w-5 animate-spin" />
+            ) : (
+              <>
+                <UserCheck className="h-5 w-5" />
+                Send for Manual Review
+              </>
+            )}
+          </button>
+        )}
         <Link to="/trip" search={{ tripId: tripId ?? "" }} className={btn.outline}>
           Back to Trip Report
         </Link>

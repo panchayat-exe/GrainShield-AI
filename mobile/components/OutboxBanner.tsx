@@ -3,8 +3,19 @@
  * Displays offline status and pending outbox queue with one-tap sync.
  */
 import React, { useState, useEffect, useCallback } from "react";
-import { View, Text, TouchableOpacity, StyleSheet, ActivityIndicator, Alert } from "react-native";
-import { getOutboxItems, syncAllOutbox, type OutboxItem } from "@/lib/offline/outbox";
+import {
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ActivityIndicator,
+  Alert,
+} from "react-native";
+import {
+  getOutboxItems,
+  syncAllOutbox,
+  type OutboxItem,
+} from "@/lib/offline/outbox";
 import { Colors, FontSizes, Spacing, Radius } from "@/constants/colors";
 import { useAuth } from "@/hooks/use-auth";
 
@@ -26,23 +37,33 @@ export function OutboxBanner() {
 
   async function handleSync() {
     if (!user) {
-      Alert.alert("Sign In Required", "Please sign in to your online account to sync outbox items to Supabase.");
+      Alert.alert(
+        "Sign In Required",
+        "Please sign in to your online account to sync outbox items to Supabase.",
+      );
       return;
     }
     setSyncing(true);
     try {
       const result = await syncAllOutbox(user.id);
       await refreshCount();
-      if (result.synced > 0) {
+      if (result.synced > 0 && result.failed === 0) {
         Alert.alert(
-          "Sync Complete",
-          `Successfully uploaded ${result.synced} trip(s) to Supabase cloud!`
+          "✅ Sync Complete",
+          `Successfully uploaded ${result.synced} trip(s) to Supabase cloud. Trip IDs have been assigned.`,
+        );
+      } else if (result.synced > 0 && result.failed > 0) {
+        Alert.alert(
+          "⚠️ Partial Sync",
+          `${result.synced} trip(s) uploaded. ${result.failed} failed: ${result.errors[0] ?? "Check internet connection."}`,
         );
       } else if (result.failed > 0) {
         Alert.alert(
-          "Sync Incomplete",
-          `Could not connect to Supabase: ${result.errors[0] ?? "Check internet connection."}`
+          "❌ Sync Failed",
+          `Could not connect to Supabase: ${result.errors[0] ?? "Check internet connection and try again."}`,
         );
+      } else {
+        Alert.alert("Outbox Empty", "All items have already been synced.");
       }
     } finally {
       setSyncing(false);
@@ -61,7 +82,7 @@ export function OutboxBanner() {
         </Text>
         <Text style={styles.subtitle}>
           {items.length > 0
-            ? `${items.length} piece(s) of evidence pending sync to Supabase`
+            ? `${items.length} trip(s) saved offline — tap Sync Now to upload`
             : "Trips & photos are saved locally on this phone"}
         </Text>
       </View>

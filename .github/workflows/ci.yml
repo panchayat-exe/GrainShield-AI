@@ -6,23 +6,21 @@ on:
   pull_request:
     branches: [main, master]
 
-defaults:
-  run:
-    working-directory: frontend
-
 jobs:
-  lint-test-build:
-    name: Lint, Test & Build
+  # ── Citizen Frontend ─────────────────────────────────────────────────────
+  frontend:
+    name: Frontend – Lint, Test & Build
     runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
-          node-version: '20'
+          node-version: '22'
           cache: 'npm'
           cache-dependency-path: frontend/package-lock.json
 
@@ -38,9 +36,107 @@ jobs:
       - name: Unit tests
         run: npm test
         env:
-          # Integration tests skip automatically when these are absent
           VITE_SUPABASE_URL: ''
           VITE_SUPABASE_PUBLISHABLE_KEY: ''
 
       - name: Build
         run: npm run build
+        env:
+          VITE_SUPABASE_URL: ''
+          VITE_SUPABASE_PUBLISHABLE_KEY: ''
+
+  # ── Admin Dashboard ───────────────────────────────────────────────────────
+  admin:
+    name: Admin – Type Check & Build
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/admin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: apps/admin/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      # Unit tests skipped (no test suite in apps/admin)
+
+      - name: Build
+        run: npm run build
+        env:
+          VITE_SUPABASE_URL: ''
+          VITE_SUPABASE_ANON_KEY: ''
+
+  # ── Mobile (TypeScript) ────────────────────────────────────────────────────
+  mobile:
+    name: Mobile – Type Check & Tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci --legacy-peer-deps
+
+      - name: Type check
+        run: npx tsc --noEmit
+
+      - name: Unit tests
+        run: npm test -- --passWithNoTests
+        env:
+          EXPO_PUBLIC_SUPABASE_URL: ''
+          EXPO_PUBLIC_SUPABASE_ANON_KEY: ''
+
+  # ── AI Model (Python) ─────────────────────────────────────────────────────
+  ai-model:
+    name: AI Model – Lint, Tests & Syntax
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ai-model
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          # Cache key based on test requirements only (avoids torch cache invalidation)
+          cache-dependency-path: ai-model/requirements-test.txt
+
+      - name: Install test dependencies
+        # Only install lightweight packages needed for unit tests.
+        # Heavy ML deps (torch, ultralytics, cv2) are NOT installed in CI —
+        # they are lazy-imported inside inference functions and not needed for tests.
+        run: pip install -r requirements-test.txt
+
+      - name: Syntax check (all Python sources)
+        run: |
+          python -c "import ast, pathlib; [ast.parse(f.read_text(encoding='utf-8-sig')) for f in pathlib.Path('src').rglob('*.py')]"
+          echo "Syntax OK"
+
+      - name: Unit tests
+        run: python -m pytest tests/ -v --tb=short
+        env:
+          TESSERACT_CMD: /usr/bin/tesseract
+          MODEL_PATH: yolo26n.pt
+          PLATE_MODEL_PATH: yolo26n.pt

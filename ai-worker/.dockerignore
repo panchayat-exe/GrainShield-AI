@@ -1,0 +1,16 @@
+# Never include secrets in the Docker image
+.env
+.env.*
+!.env.example
+
+# Node artifacts
+node_modules/
+npm-debug.log*
+
+# Git
+.git/
+.gitignore
+
+# IDE
+.vscode/
+.idea/

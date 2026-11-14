@@ -1,12 +1,14 @@
 """
-GrainShield AI — Inference HTTP Service
+GrainShield AI -- Inference HTTP Service
 Provides a REST API for license plate detection, OCR, and transport verification.
 """
 
 from __future__ import annotations
 
+import asyncio
 import os
 import sys
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -17,29 +19,126 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from fastapi import FastAPI, File, Form, Header, HTTPException, Request, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 
-from src.inference import GrainShieldInferenceEngine, resolve_model_path
+import datetime
+
+from src.inference import GrainShieldInferenceEngine, resolve_model_path, resolve_plate_model_path
 
 # ---------------------------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------------------------
+# Load the local AI service environment without requiring python-dotenv.
+def _load_service_env():
+    env_path = Path(__file__).resolve().parents[1] / ".env"
+    if not env_path.is_file():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+
+        name, value = line.split("=", 1)
+        name = name.strip()
+        value = value.strip()
+
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ("'", '"'):
+            value = value[1:-1]
+
+        if name:
+            os.environ.setdefault(name, value)
+
+
+_load_service_env()
+
 MAX_FILE_SIZE_BYTES = int(os.environ.get("MAX_FILE_SIZE_BYTES", str(10 * 1024 * 1024)))  # 10 MB
 ALLOWED_MIME_TYPES = {"image/jpeg", "image/png", "image/webp", "image/jpg"}
 API_KEY = os.environ.get("CV_API_KEY", "").strip()
 
-# Global engine instance pre-loaded at startup
+_raw_origins = os.environ.get(
+    "ALLOWED_ORIGINS",
+    "http://localhost:3000,http://localhost:3001,http://localhost:8080,http://127.0.0.1:3000,http://127.0.0.1:3001,http://127.0.0.1:8080"
+)
+ALLOWED_ORIGINS = [o.strip() for o in _raw_origins.split(",") if o.strip()]
+
+ENVIRONMENT = os.environ.get("ENVIRONMENT", "development").lower()
+if not API_KEY:
+    if ENVIRONMENT == "production":
+        print("[security] FATAL: CV_API_KEY must be set in production. Exiting.")
+        sys.exit(1)
+    else:
+        print("[security] WARNING: CV_API_KEY is not set. /verify endpoint is unprotected.")
+        print("[security]          Set CV_API_KEY in .env for production deployments.")
+
+# Thread pool for blocking inference calls
+_executor = ThreadPoolExecutor(max_workers=2)
+
+# Global engine instance and health metadata pre-loaded at startup
 engine: Optional[GrainShieldInferenceEngine] = None
+_startup_time: Optional[datetime.datetime] = None
+_plate_model_status: str = "not_loaded"
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    global engine
+    global engine, _startup_time, _plate_model_status
+    _startup_time = datetime.datetime.utcnow()
+
+    # Resolve and validate both models before loading
     model_path = resolve_model_path()
-    print(f"[service] Preloading GrainShield model from: {model_path}")
-    engine = GrainShieldInferenceEngine(model_path=model_path, device="cpu")
-    print(f"[service] Model loaded successfully. Tesseract: {engine.tesseract_cmd}")
+    print(f"[service] Vehicle model: {model_path}")
+
+    try:
+        plate_model_path = resolve_plate_model_path()
+        print(f"[service] Plate model:   {plate_model_path}")
+        _plate_model_status = "found"
+    except FileNotFoundError as exc:
+        # Log CRITICAL -- service continues in degraded mode (no plate detector).
+        # All verifications will route to manual_review when no plate found.
+        print(f"[service] CRITICAL: plate model not found -- {exc}")
+        print(
+            "[service]          Run:  python scripts/deploy_weights.py\n"
+            "[service]          Or set PLATE_MODEL_PATH env var before starting."
+        )
+        _plate_model_status = "missing"
+        plate_model_path = None
+
+    requested_device = os.environ.get("GRAINSHIELD_DEVICE", "auto").strip().lower()
+
+    try:
+        import torch
+        cuda_available = torch.cuda.is_available()
+    except Exception:
+        cuda_available = False
+
+    if requested_device in {"", "auto"}:
+        inference_device = "cuda:0" if cuda_available else "cpu"
+    elif requested_device.startswith("cuda") and not cuda_available:
+        raise RuntimeError(
+            "CUDA was requested but is unavailable. Check the PyTorch CUDA installation."
+        )
+    else:
+        inference_device = requested_device
+
+    print(f"[service] Inference device: {inference_device}")
+    engine = GrainShieldInferenceEngine(
+        model_path=model_path,
+        device=inference_device,
+        plate_model_path=plate_model_path,
+    )
+    _plate_model_status = "loaded"
+    print(
+        f"[service] Both models loaded. "
+        f"Vehicle: {engine.model_path.name}. "
+        f"Plate: {engine.plate_model_path.name}. "
+        f"Tesseract: {engine.tesseract_cmd}"
+    )
     yield
     print("[service] Shutting down inference service.")
+    _executor.shutdown(wait=False)
 
 
 app = FastAPI(
@@ -49,9 +148,14 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Rate limiting
+limiter = Limiter(key_func=get_remote_address, default_limits=["200/minute"])
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=ALLOWED_ORIGINS,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -83,21 +187,51 @@ def verify_api_key(authorization: Optional[str] = None):
 # ---------------------------------------------------------------------------
 @app.get("/health")
 @app.get("/")
-async def health_check():
-    """Health check endpoint confirming service and model status."""
-    is_ready = engine is not None and engine.model is not None
+@limiter.limit("120/minute")
+async def health_check(request: Request):
+    """
+    Health check endpoint confirming service and both model statuses.
+
+    Returns status="healthy" only when both models are loaded.
+    Returns status="degraded" when plate model is missing -- service is
+    still operational but all verifications will route to manual_review.
+    Returns status="initializing" when engine is not yet ready.
+    """
+    vehicle_ready = engine is not None and engine.vehicle_model is not None
+    plate_ready = engine is not None and engine.plate_model is not None
+    both_ready = vehicle_ready and plate_ready
+
+    uptime_seconds = None
+    if _startup_time is not None:
+        uptime_seconds = int(
+            (datetime.datetime.utcnow() - _startup_time).total_seconds()
+        )
+
     return {
-        "status": "healthy" if is_ready else "initializing",
+        "status": "healthy" if both_ready else ("degraded" if vehicle_ready else "initializing"),
         "service": "grainshield-inference",
-        "version": "1.0.0",
-        "model_loaded": is_ready,
+        "version": engine.version if engine else "unknown",
+        "models": {
+            "vehicle_detector": {
+                "loaded": vehicle_ready,
+                "path": str(engine.model_path.name) if engine else None,
+            },
+            "plate_detector": {
+                "loaded": plate_ready,
+                "status": _plate_model_status,
+                "path": str(engine.plate_model_path.name) if (engine and plate_ready) else None,
+            },
+        },
         "device": engine.device if engine else "cpu",
         "tesseract": engine.tesseract_cmd if engine else None,
+        "uptime_seconds": uptime_seconds,
     }
 
 
 @app.post("/verify")
+@limiter.limit("60/minute")
 async def verify_image(
+    request: Request,
     image: UploadFile = File(...),
     expected_plate: Optional[str] = Form(None),
     stage: Optional[str] = Form(None),
@@ -182,14 +316,26 @@ async def verify_image(
             },
         )
 
-    # Run inference pipeline
+    # Run inference pipeline — offload blocking work to thread executor with timeout
     try:
-        result = engine.analyze_image(
+        loop = asyncio.get_running_loop()
+        fn = lambda: engine.analyze_image(
             image_bytes=image_bytes,
             expected_plate=expected_plate,
             stage=stage,
         )
+        try:
+            # In a live uvicorn server, offload to thread pool to keep event loop free
+            result = await asyncio.wait_for(
+                loop.run_in_executor(_executor, fn),
+                timeout=90.0,
+            )
+        except RuntimeError:
+            # TestClient / environments without a running loop: call directly
+            result = fn()
         return result
+    except asyncio.TimeoutError:
+        raise HTTPException(status_code=504, detail="Inference timeout after 90s")
     except Exception as e:
         return JSONResponse(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,

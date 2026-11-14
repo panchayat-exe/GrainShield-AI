@@ -1,0 +1,98 @@
+[
+  {
+    "scenario": "1. Exact plate match (high consensus)",
+    "imageType": "Real test dataset image (video5_160.jpg)",
+    "assigned": "MH03CS6266",
+    "detected": "MH03CS6266",
+    "variantVotes": 4,
+    "plateConfidence": 0.7523,
+    "reasonCode": "plate_verified",
+    "decision": "pass",
+    "status": "pass",
+    "compliant": true
+  },
+  {
+    "scenario": "2. Confident registration mismatch",
+    "imageType": "Real test dataset image (video5_160.jpg)",
+    "assigned": "GJ01AB1234",
+    "detected": "MH03CS6266",
+    "variantVotes": 4,
+    "plateConfidence": 0.7523,
+    "reasonCode": "plate_mismatch",
+    "decision": "fail",
+    "status": "rejected",
+    "compliant": true
+  },
+  {
+    "scenario": "3. 1-character difference (adversarial safety)",
+    "imageType": "Real test dataset image (video5_160.jpg)",
+    "assigned": "MH03CS6267",
+    "detected": "MH03CS6266",
+    "variantVotes": 4,
+    "plateConfidence": 0.7523,
+    "reasonCode": "plate_close_match",
+    "decision": "manual_review",
+    "status": "manual_review",
+    "compliant": true
+  },
+  {
+    "scenario": "4. Low OCR consensus guard",
+    "imageType": "Real test dataset image (video10_1070.jpg)",
+    "assigned": "MHO3092010",
+    "detected": "MHO3092010",
+    "variantVotes": 1,
+    "plateConfidence": 0.7876,
+    "reasonCode": "plate_ocr_low_consensus",
+    "decision": "manual_review",
+    "status": "manual_review",
+    "compliant": true
+  },
+  {
+    "scenario": "5. Matched FPS shop delivery",
+    "imageType": "Test fixture image (cp4_fps_delivery.jpg)",
+    "assigned": "FPS-AMD-001",
+    "detected": "FPS-AMD-001 (Banner detected)",
+    "variantVotes": "N/A (Banner)",
+    "plateConfidence": 0,
+    "reasonCode": "fps_banner_detected",
+    "decision": "manual_review",
+    "status": "manual_review",
+    "compliant": true
+  },
+  {
+    "scenario": "6. Incorrect FPS shop code",
+    "imageType": "Test fixture image (cp4_fps_delivery.jpg)",
+    "assigned": "FPS-GNR-999",
+    "detected": "FPS-AMD-001 (mismatch)",
+    "variantVotes": "N/A (Banner)",
+    "plateConfidence": 0,
+    "reasonCode": "fps_shop_mismatch",
+    "decision": "manual_review",
+    "status": "manual_review",
+    "compliant": true
+  },
+  {
+    "scenario": "7. Generic banner keywords without shop code",
+    "imageType": "Test fixture image (cp4_fps_delivery.jpg)",
+    "assigned": "None (Unassigned FPS)",
+    "detected": "Keywords: PDS, RATION, FOOD",
+    "variantVotes": "N/A (Banner)",
+    "plateConfidence": 0,
+    "reasonCode": "generic_banner_detected",
+    "decision": "manual_review",
+    "status": "manual_review",
+    "compliant": true
+  },
+  {
+    "scenario": "8. Unusable evidence / no vehicle",
+    "imageType": "Low-res blank artifact frame",
+    "assigned": "GJ01AB1234",
+    "detected": "None",
+    "variantVotes": 0,
+    "plateConfidence": 0,
+    "reasonCode": "image_low_resolution",
+    "decision": "retake",
+    "status": "retake",
+    "compliant": true
+  }
+]

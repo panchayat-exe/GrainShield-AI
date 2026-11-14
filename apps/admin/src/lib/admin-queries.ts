@@ -1,0 +1,779 @@
+/**
+ * GrainShield AI Admin — Supabase Query & Mutation Services
+ * Genuine Supabase backend operations backed by RLS and database RPCs.
+ */
+import { supabase } from "./supabase";
+import type {
+  Trip,
+  TripEvidence,
+  VerificationResult,
+  ManualReviewRequest,
+  AuditLog,
+  Profile,
+  TripStage,
+  TripStatus,
+  UserRole,
+} from "./supabase";
+import { canAssignRole, type AdminUser } from "./admin-auth";
+
+// ---------------------------------------------------------------------------
+// Dashboard Statistics
+// ---------------------------------------------------------------------------
+export async function getDashboardStats() {
+  const todayStart = new Date();
+  todayStart.setHours(0, 0, 0, 0);
+
+  const [
+    tripsRes,
+    reviewRes,
+    passRes,
+    processingRes,
+    rejectedRes,
+    retakeRes,
+    firstMileRes,
+    midMileRes,
+    lastMileRes,
+    todayRes,
+  ] = await Promise.all([
+    supabase.from("trips").select("id", { count: "exact", head: true }),
+    supabase
+      .from("manual_review_requests")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["pending", "assigned", "in_review"]),
+    supabase
+      .from("trips")
+      .select("id", { count: "exact", head: true })
+      .in("status", ["pass", "completed"]),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("status", "processing"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("status", "rejected"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("status", "retake"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("stage", "first_mile"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("stage", "mid_mile"),
+    supabase.from("trips").select("id", { count: "exact", head: true }).eq("stage", "last_mile"),
+    supabase
+      .from("trips")
+      .select("id", { count: "exact", head: true })
+      .gte("created_at", todayStart.toISOString()),
+  ]);
+
+  return {
+    totalTrips: tripsRes.count ?? 0,
+    pendingReview: reviewRes.count ?? 0,
+    passed: passRes.count ?? 0,
+    processing: processingRes.count ?? 0,
+    rejected: rejectedRes.count ?? 0,
+    retake: retakeRes.count ?? 0,
+    firstMile: firstMileRes.count ?? 0,
+    midMile: midMileRes.count ?? 0,
+    lastMile: lastMileRes.count ?? 0,
+    todayCount: todayRes.count ?? 0,
+    error:
+      tripsRes.error?.message ??
+      reviewRes.error?.message ??
+      passRes.error?.message ??
+      processingRes.error?.message ??
+      null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Trips Management
+// ---------------------------------------------------------------------------
+export interface TripsFilter {
+  page?: number | undefined;
+  pageSize?: number | undefined;
+  stage?: TripStage | "" | undefined;
+  status?: TripStatus | "" | undefined;
+  search?: string | undefined;
+  district?: string | undefined;
+  dateFrom?: string | undefined;
+  dateTo?: string | undefined;
+}
+
+export async function getTrips({
+  page = 1,
+  pageSize = 20,
+  stage = "",
+  status = "",
+  search = "",
+  district = "",
+  dateFrom = "",
+  dateTo = "",
+}: TripsFilter = {}) {
+  let query = supabase
+    .from("trips")
+    .select(
+      "id, trip_code, vehicle_number, driver_name, driver_phone, stage, origin, destination, status, created_at, updated_at",
+      { count: "exact" },
+    )
+    .order("created_at", { ascending: false })
+    .range((page - 1) * pageSize, page * pageSize - 1);
+
+  if (stage) query = query.eq("stage", stage);
+  if (status) query = query.eq("status", status);
+  if (district) query = query.or(`origin.ilike.%${district}%,destination.ilike.%${district}%`);
+  if (dateFrom) query = query.gte("created_at", dateFrom);
+  if (dateTo) query = query.lte("created_at", dateTo + "T23:59:59Z");
+  if (search)
+    query = query.or(
+      `trip_code.ilike.%${search}%,vehicle_number.ilike.%${search}%,driver_name.ilike.%${search}%`,
+    );
+
+  const { data, error, count } = await query;
+  return {
+    trips: (data as Trip[]) ?? [],
+    total: count ?? 0,
+    error: error?.message ?? null,
+  };
+}
+
+export async function getTripById(tripId: string) {
+  const { data, error } = await supabase.from("trips").select("*").eq("id", tripId).maybeSingle();
+  return { trip: data as Trip | null, error: error?.message ?? null };
+}
+
+export interface DispatchTripInput {
+  vehicle_number: string;
+  driver_id?: string | undefined;
+  driver_name?: string | undefined;
+  driver_phone?: string | undefined;
+  stage: TripStage;
+  origin?: string | undefined;
+  destination?: string | undefined;
+  /** Optional manual override. Leave blank for auto-generated GS-YYYY-NNNNNN code. */
+  trip_code?: string | undefined;
+}
+
+export interface DriverProfile {
+  id: string;
+  full_name: string | null;
+  email: string;
+  phone: string | null;
+  district: string | null;
+}
+
+/**
+ * Dispatches a new trip via the admin_dispatch_trip RPC.
+ * Trip code is auto-generated server-side (GS-YYYY-NNNNNN sequence)
+ * unless an explicit override is provided.
+ */
+export async function createAdminTrip(input: DispatchTripInput) {
+  const { data, error } = await supabase.rpc("admin_dispatch_trip", {
+    p_vehicle_number: input.vehicle_number,
+    p_driver_id: input.driver_id ?? null,
+    p_driver_name: input.driver_name ?? null,
+    p_driver_phone: input.driver_phone ?? null,
+    p_stage: input.stage,
+    p_origin: input.origin ?? null,
+    p_destination: input.destination ?? null,
+    p_trip_code: input.trip_code ?? null,
+  });
+
+  if (error) return { trip: null, error: error.message };
+  if (!data?.success) return { trip: null, error: data?.error ?? "Failed to dispatch trip" };
+  return {
+    trip: data as { trip_id: string; trip_code: string; vehicle: string; stage: string },
+    error: null,
+  };
+}
+
+/** Fetches user-role profiles for the driver selection dropdown. */
+export async function getDriverProfiles(
+  search = "",
+): Promise<{ profiles: DriverProfile[]; error: string | null }> {
+  const { data, error } = await supabase.rpc("get_driver_profiles", {
+    p_search: search,
+  });
+  return {
+    profiles: (data as DriverProfile[]) ?? [],
+    error: error?.message ?? null,
+  };
+}
+
+export async function updateTripStatus(tripId: string, status: TripStatus, actorId?: string) {
+  const { error } = await supabase
+    .from("trips")
+    .update({ status, updated_at: new Date().toISOString() })
+    .eq("id", tripId);
+  if (!error && actorId) {
+    await supabase.from("audit_logs").insert({
+      actor_id: actorId,
+      action: "trip_status_updated",
+      entity_type: "trips",
+      entity_id: tripId,
+      trip_id: tripId,
+      metadata: { new_status: status },
+    });
+  }
+  return { error: error?.message ?? null };
+}
+
+/** Fetches full GPS breadcrumb history for a trip. */
+export async function getTripLocations(tripId: string) {
+  const { data, error } = await supabase
+    .from("trip_locations")
+    .select("*")
+    .eq("trip_id", tripId)
+    .order("recorded_at", { ascending: true });
+
+  return { locations: data ?? [], error: error?.message ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// Manual Review Queue
+// ---------------------------------------------------------------------------
+export interface ReviewQueueFilter {
+  page?: number | undefined;
+  pageSize?: number | undefined;
+  stage?: TripStage | "" | undefined;
+  reviewStatus?: string | undefined;
+  dateFrom?: string | undefined;
+  dateTo?: string | undefined;
+}
+
+export async function getReviewQueue({
+  page = 1,
+  pageSize = 20,
+  stage = "",
+  reviewStatus = "",
+  dateFrom = "",
+  dateTo = "",
+}: ReviewQueueFilter = {}) {
+  let query = supabase
+    .from("manual_review_requests")
+    .select(
+      `
+      id, status, user_notes, created_at, resolved_at, reviewer_notes, assigned_reviewer,
+      trips(id, trip_code, vehicle_number, stage, origin, destination, status),
+      trip_evidence(id, original_filename, storage_path, uploaded_at)
+    `,
+      { count: "exact" },
+    )
+    .order("created_at", { ascending: false })
+    .range((page - 1) * pageSize, page * pageSize - 1);
+
+  if (reviewStatus) query = query.eq("status", reviewStatus);
+  else query = query.in("status", ["pending", "assigned", "in_review"]);
+
+  if (dateFrom) query = query.gte("created_at", dateFrom);
+  if (dateTo) query = query.lte("created_at", dateTo + "T23:59:59Z");
+
+  const { data, error, count } = await query;
+  return {
+    reviews: data ?? [],
+    total: count ?? 0,
+    error: error?.message ?? null,
+  };
+}
+
+export async function assignReviewer(reviewId: string, reviewerId: string) {
+  const { error } = await supabase
+    .from("manual_review_requests")
+    .update({
+      assigned_reviewer: reviewerId,
+      status: "assigned",
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", reviewId);
+  return { error: error?.message ?? null };
+}
+
+/** @deprecated Use resolveManualReview() — this direct update bypasses state machine and audit trail. Not called in UI. */
+export async function resolveReview(
+  reviewId: string,
+  decision: "resolved" | "escalated",
+  notes: string,
+) {
+  const { error } = await supabase
+    .from("manual_review_requests")
+    .update({
+      status: decision,
+      reviewer_notes: notes,
+      resolved_at: new Date().toISOString(),
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", reviewId);
+  return { error: error?.message ?? null };
+}
+
+export interface ResolveManualReviewInput {
+  reviewId: string;
+  tripId: string;
+  decision: "pass" | "retake" | "rejected";
+  notes: string;
+  reviewerId: string;
+  reviewerEmail?: string | undefined;
+}
+
+/**
+ * Resolves a manual review case atomically via the resolve_manual_review RPC (Migration 016).
+ *
+ * The RPC handles:
+ *  - Authorization (officer/admin/super_admin only)
+ *  - FOR UPDATE lock — prevents double-resolution race condition
+ *  - Back-fills evidence_id if missing (fixes M013 multi-row subquery bug)
+ *  - Updates verification_results WHERE evidence_id = ... (strict, not wildcard)
+ *  - Sets consumed_at support for once-only override enforcement (Migration 015)
+ *  - Updates trip status via state-machine trigger
+ *  - Writes immutable audit log
+ *
+ * The JS multi-table fallback has been removed: the old fallback reproduced the
+ * same multi-row bug (UPDATE verification_results WHERE trip_id = ...).
+ * Any DB error is surfaced directly as actionable text to the officer UI.
+ */
+export async function resolveManualReview(input: ResolveManualReviewInput) {
+  if (!input.notes || input.notes.trim().length < 5) {
+    return { error: "Reviewer justification notes are mandatory (minimum 5 characters)." };
+  }
+
+  const { data: rpcData, error: rpcErr } = await supabase.rpc("resolve_manual_review", {
+    p_review_id: input.reviewId,
+    p_decision: input.decision,
+    p_notes: input.notes.trim(),
+  });
+
+  if (rpcErr) {
+    // Surface the actual DB error so officers see actionable text, e.g.:
+    // "This review request has already been resolved by another officer."
+    return { error: rpcErr.message ?? "Database error resolving review. Please retry." };
+  }
+
+  if (!rpcData?.success) {
+    return {
+      error:
+        "Review resolution returned no confirmation. Please check the audit log and retry if needed.",
+    };
+  }
+
+  return { success: true, error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Trip Detail (Evidence + Verifications + Reviews + Locations)
+// ---------------------------------------------------------------------------
+export async function getTripDetail(tripId: string) {
+  const [tripRes, evidenceRes, verificationRes, reviewRes, locationsRes] = await Promise.all([
+    supabase.from("trips").select("*").eq("id", tripId).maybeSingle(),
+    supabase
+      .from("trip_evidence")
+      .select("*")
+      .eq("trip_id", tripId)
+      .order("uploaded_at", { ascending: false }),
+    supabase
+      .from("verification_results")
+      .select("*")
+      .eq("trip_id", tripId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("manual_review_requests")
+      .select("*")
+      .eq("trip_id", tripId)
+      .order("created_at", { ascending: false }),
+    supabase
+      .from("trip_locations")
+      .select("*")
+      .eq("trip_id", tripId)
+      .order("recorded_at", { ascending: true }),
+  ]);
+
+  return {
+    trip: tripRes.data as Trip | null,
+    evidence: (evidenceRes.data as TripEvidence[]) ?? [],
+    verifications: (verificationRes.data as VerificationResult[]) ?? [],
+    reviews: (reviewRes.data as ManualReviewRequest[]) ?? [],
+    locations: locationsRes.data ?? [],
+    error:
+      tripRes.error?.message ??
+      evidenceRes.error?.message ??
+      verificationRes.error?.message ??
+      reviewRes.error?.message ??
+      null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Evidence — Signed URLs for private storage
+// ---------------------------------------------------------------------------
+export async function getEvidenceSignedUrl(storagePath: string, expiresInSeconds = 300) {
+  const { data, error } = await supabase.storage
+    .from("trip-evidence")
+    .createSignedUrl(storagePath, expiresInSeconds);
+  return { url: data?.signedUrl ?? null, error: error?.message ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// Audit Logs
+// ---------------------------------------------------------------------------
+export interface AuditLogFilter {
+  page?: number | undefined;
+  pageSize?: number | undefined;
+  tripId?: string | undefined;
+  action?: string | undefined;
+  dateFrom?: string | undefined;
+  dateTo?: string | undefined;
+}
+
+export async function getAuditLogs({
+  page = 1,
+  pageSize = 50,
+  tripId = "",
+  action = "",
+  dateFrom = "",
+  dateTo = "",
+}: AuditLogFilter = {}) {
+  let query = supabase
+    .from("audit_logs")
+    .select("id, action, entity_type, entity_id, trip_id, metadata, created_at, actor_id", {
+      count: "exact",
+    })
+    .order("created_at", { ascending: false })
+    .range((page - 1) * pageSize, page * pageSize - 1);
+
+  if (tripId) query = query.eq("trip_id", tripId);
+  if (action) query = query.eq("action", action);
+  if (dateFrom) query = query.gte("created_at", dateFrom);
+  if (dateTo) query = query.lte("created_at", dateTo + "T23:59:59Z");
+
+  const { data, error, count } = await query;
+  return {
+    logs: (data as AuditLog[]) ?? [],
+    total: count ?? 0,
+    error: error?.message ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Reports — Aggregated trip and verification statistics
+// ---------------------------------------------------------------------------
+export interface ReportStatsFilter {
+  stage?: TripStage | "" | undefined;
+  periodDays?: number | undefined;
+  district?: string | undefined;
+}
+
+export async function getReportStats({
+  stage = "",
+  periodDays = 0,
+  district = "",
+}: ReportStatsFilter = {}) {
+  let query = supabase.from("trips").select("origin, destination, status, stage, created_at");
+
+  if (stage) query = query.eq("stage", stage);
+  if (district && district !== "All Districts") {
+    query = query.or(`origin.ilike.%${district}%,destination.ilike.%${district}%`);
+  }
+  if (periodDays > 0) {
+    const since = new Date(Date.now() - periodDays * 24 * 60 * 60 * 1000).toISOString();
+    query = query.gte("created_at", since);
+  }
+
+  const { data, error } = await query;
+
+  if (error || !data) return { districts: [], error: error?.message ?? null };
+
+  // Aggregate by district (origin or destination)
+  const districtMap: Record<
+    string,
+    {
+      total: number;
+      pass: number;
+      review: number;
+      rejected: number;
+      firstMile: number;
+      lastMile: number;
+    }
+  > = {};
+
+  for (const trip of data) {
+    const dName = trip.origin || trip.destination || "General";
+    if (!districtMap[dName]) {
+      districtMap[dName] = { total: 0, pass: 0, review: 0, rejected: 0, firstMile: 0, lastMile: 0 };
+    }
+    districtMap[dName].total++;
+    if (trip.status === "pass" || trip.status === "completed") districtMap[dName].pass++;
+    else if (trip.status === "manual_review") districtMap[dName].review++;
+    else if (trip.status === "rejected") districtMap[dName].rejected++;
+
+    if (trip.stage === "first_mile") districtMap[dName].firstMile++;
+    else if (trip.stage === "last_mile") districtMap[dName].lastMile++;
+  }
+
+  const districts = Object.entries(districtMap)
+    .map(([name, stats]) => ({ name, ...stats }))
+    .sort((a, b) => b.total - a.total);
+
+  return { districts, error: null };
+}
+
+/** Returns trip counts per day for the last N days (default 30) for the trend chart. */
+export async function getDailyTrend(
+  days = 30,
+): Promise<{ date: string; total: number; pass: number; review: number }[]> {
+  const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000).toISOString();
+  const { data, error } = await supabase
+    .from("trips")
+    .select("created_at, status")
+    .gte("created_at", since)
+    .order("created_at", { ascending: true });
+
+  if (error || !data) return [];
+
+  const dayMap: Record<string, { total: number; pass: number; review: number }> = {};
+  for (const trip of data) {
+    const day = new Date(trip.created_at).toLocaleDateString("en-CA"); // YYYY-MM-DD
+    if (!dayMap[day]) dayMap[day] = { total: 0, pass: 0, review: 0 };
+    dayMap[day].total++;
+    if (trip.status === "pass" || trip.status === "completed") dayMap[day].pass++;
+    else if (trip.status === "manual_review") dayMap[day].review++;
+  }
+
+  return Object.entries(dayMap)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, v]) => ({ date, ...v }));
+}
+
+/** Logs report export event in audit trail. */
+export async function logReportExport(actorId: string, metadata: Record<string, unknown>) {
+  await supabase.from("audit_logs").insert({
+    actor_id: actorId,
+    action: "report_exported",
+    entity_type: "reports",
+    metadata,
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Profiles & User Role Management
+// ---------------------------------------------------------------------------
+export async function getProfiles({ page = 1, pageSize = 50, search = "" } = {}) {
+  let query = supabase
+    .from("profiles")
+    .select("id, email, full_name, role, district, created_at, updated_at", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range((page - 1) * pageSize, page * pageSize - 1);
+
+  if (search) query = query.or(`email.ilike.%${search}%,full_name.ilike.%${search}%`);
+
+  const { data, error, count } = await query;
+  return {
+    profiles: (data as Profile[]) ?? [],
+    total: count ?? 0,
+    error: error?.message ?? null,
+  };
+}
+
+/** Updates user role with strict RBAC privilege checks. */
+export async function updateUserRole(
+  targetUserId: string,
+  targetCurrentRole: UserRole,
+  newRole: UserRole,
+  caller: AdminUser | null | undefined,
+) {
+  // Validate authorization
+  const authCheck = canAssignRole(caller, targetCurrentRole, newRole);
+  if (!authCheck.allowed) {
+    return { error: authCheck.reason ?? "Permission denied." };
+  }
+
+  // 1. Try secure RPC
+  const { data: rpcData, error: rpcErr } = await supabase.rpc("manage_user_role", {
+    target_user_id: targetUserId,
+    new_role: newRole,
+  });
+
+  if (!rpcErr && rpcData?.success) {
+    return { success: true, error: null };
+  }
+
+  // 2. RPC failed — do NOT fall back to a direct profiles UPDATE (would bypass RPC-level RBAC).
+  //    Return the RPC error so the UI can surface it to the administrator.
+  const rpcMsg =
+    rpcErr?.message ?? (rpcData as { error?: string } | null)?.error ?? "Role update failed";
+  return { error: rpcMsg };
+
+  // Audit log is written inside the manage_user_role RPC on success.
+}
+
+// ---------------------------------------------------------------------------
+// Live Tracking — Latest GPS Location per Active Trip
+// ---------------------------------------------------------------------------
+export type ActiveTripLocation = {
+  tripId: string;
+  tripCode: string;
+  vehicleNumber: string;
+  driverName: string | null;
+  stage: TripStage;
+  status: TripStatus;
+  origin: string | null;
+  destination: string | null;
+  originLat: number | null; // from migration 025
+  originLng: number | null;
+  destinationLat: number | null;
+  destinationLng: number | null;
+  latitude: number;
+  longitude: number;
+  accuracyMeters: number | null;
+  recordedAt: string;
+};
+
+export async function getActiveTripLocations(): Promise<{
+  locations: ActiveTripLocation[];
+  error: string | null;
+}> {
+  const { data: trips, error: tripErr } = await supabase
+    .from("trips")
+    .select(
+      "id, trip_code, vehicle_number, driver_name, stage, status, origin, destination, origin_lat, origin_lng, destination_lat, destination_lng, updated_at",
+    )
+    .or(
+      // Active processing states + recently completed/passed (within 2 hours) for last-mile visibility
+      `status.in.(submitted,processing,manual_review),and(status.in.(pass,completed),updated_at.gte.${new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString()})`,
+    )
+    .order("created_at", { ascending: false })
+    .limit(50);
+
+  if (tripErr || !trips?.length) {
+    return { locations: [], error: tripErr?.message ?? null };
+  }
+
+  const tripIds = trips.map((t) => t.id as string);
+
+  const { data: locs, error: locErr } = await supabase
+    .from("trip_locations")
+    .select("trip_id, latitude, longitude, accuracy_meters, recorded_at")
+    .in("trip_id", tripIds)
+    .order("recorded_at", { ascending: false });
+
+  if (locErr) {
+    return { locations: [], error: locErr.message };
+  }
+
+  const seen = new Set<string>();
+  const latestByTrip = (locs ?? []).filter((l) => {
+    if (seen.has(l.trip_id)) return false;
+    seen.add(l.trip_id);
+    return true;
+  });
+
+  const locations: ActiveTripLocation[] = latestByTrip.map((loc) => {
+    const trip = trips.find((t) => t.id === loc.trip_id)!;
+    return {
+      tripId: trip.id,
+      tripCode: trip.trip_code,
+      vehicleNumber: trip.vehicle_number,
+      driverName: trip.driver_name ?? null,
+      stage: trip.stage as TripStage,
+      status: trip.status as TripStatus,
+      origin: trip.origin ?? null,
+      destination: trip.destination ?? null,
+      originLat: (trip["origin_lat"] as number | null) ?? null,
+      originLng: (trip["origin_lng"] as number | null) ?? null,
+      destinationLat: (trip["destination_lat"] as number | null) ?? null,
+      destinationLng: (trip["destination_lng"] as number | null) ?? null,
+      latitude: loc.latitude,
+      longitude: loc.longitude,
+      accuracyMeters: loc.accuracy_meters ?? null,
+      recordedAt: loc.recorded_at,
+    };
+  });
+
+  return { locations, error: null };
+}
+
+// ---------------------------------------------------------------------------
+// Vehicle Registry
+// ---------------------------------------------------------------------------
+export interface Vehicle {
+  id: string;
+  vehicle_number: string;
+  vehicle_type: "truck" | "mini_truck" | "tempo" | "tractor" | "other";
+  capacity_tonnes: number | null;
+  owner_name: string | null;
+  owner_phone: string | null;
+  registration_expiry: string | null;
+  insurance_expiry: string | null;
+  fitness_expiry: string | null;
+  is_active: boolean;
+  notes: string | null;
+  organization_id: string | null;
+  created_at: string;
+  updated_at: string | null;
+}
+
+export async function getVehicles({
+  page = 1,
+  pageSize = 50,
+  search = "",
+  activeOnly = false,
+}: { page?: number; pageSize?: number; search?: string; activeOnly?: boolean } = {}) {
+  let query = supabase
+    .from("vehicles")
+    .select("*", { count: "exact" })
+    .order("created_at", { ascending: false })
+    .range((page - 1) * pageSize, page * pageSize - 1);
+  if (search) query = query.ilike("vehicle_number", `%${search}%`);
+  if (activeOnly) query = query.eq("is_active", true);
+  const { data, error, count } = await query;
+  return {
+    vehicles: (data as Vehicle[]) ?? [],
+    total: count ?? 0,
+    error: error?.message ?? null,
+  };
+}
+
+export async function upsertVehicle(v: Omit<Vehicle, "id" | "created_at" | "updated_at">) {
+  const { data, error } = await supabase
+    .from("vehicles")
+    .upsert({ ...v, updated_at: new Date().toISOString() }, { onConflict: "vehicle_number" })
+    .select()
+    .maybeSingle();
+  return { vehicle: data as Vehicle | null, error: error?.message ?? null };
+}
+
+export async function toggleVehicleActive(id: string, isActive: boolean) {
+  const { error } = await supabase
+    .from("vehicles")
+    .update({ is_active: isActive, updated_at: new Date().toISOString() })
+    .eq("id", id);
+  return { error: error?.message ?? null };
+}
+
+// ---------------------------------------------------------------------------
+// Vehicle Trip History
+// ---------------------------------------------------------------------------
+export interface VehicleTripSummary {
+  id: string;
+  trip_code: string;
+  stage: string;
+  status: string;
+  district: string | null;
+  created_at: string;
+  driver_name: string | null;
+}
+
+export async function getVehicleTripHistory(
+  vehicleNumber: string,
+  limit = 20,
+): Promise<{ trips: VehicleTripSummary[]; error: string | null }> {
+  const { data, error } = await supabase
+    .from("trips")
+    .select("id, trip_code, stage, status, district, created_at, driver_name")
+    .ilike("vehicle_number", vehicleNumber)
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  return {
+    trips: (data as VehicleTripSummary[]) ?? [],
+    error: error?.message ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Driver assignment for vehicles
+// ---------------------------------------------------------------------------
+export async function assignDriverToTrip(
+  tripId: string,
+  driverId: string | null,
+): Promise<{ error: string | null }> {
+  const { error } = await supabase.from("trips").update({ driver_id: driverId }).eq("id", tripId);
+  return { error: error?.message ?? null };
+}

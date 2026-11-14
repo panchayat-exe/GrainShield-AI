@@ -1,0 +1,62 @@
+[
+  {
+    "checkpoint": "1. FCI Departure (First Mile)",
+    "tripCode": "TRIP-LIVE-FM-1793812227081",
+    "evidenceId": "34ca23e7-4b5d-4341-ae60-d56d48f05772",
+    "imageSource": "Actual image submitted (cp1_fci_departure.jpg)",
+    "assignedPlate": "GJ01AB1234",
+    "detectedPlate": null,
+    "ocrDecision": "manual_review",
+    "fpsCodeExpected": "N/A (First Mile)",
+    "fpsCodeExtracted": "N/A",
+    "gpsType": "Demonstration fixture benchmark coordinates (FCI-AMD-01: 23.0338, 72.5850)",
+    "geofenceDist": "0m (pass)",
+    "tripStatus": "in_transit",
+    "auditAction": "first_mile_departure_verified"
+  },
+  {
+    "checkpoint": "2. GSCSCL Arrival e-POD (First Mile)",
+    "tripCode": "TRIP-LIVE-FM-1793812227081",
+    "evidenceId": "27224070-b6c6-414b-8b2a-ea92e40792c9",
+    "imageSource": "Actual image submitted (cp2_gscscl_arrival.jpg)",
+    "assignedPlate": "GJ01AB1234",
+    "detectedPlate": null,
+    "ocrDecision": "manual_review",
+    "fpsCodeExpected": "N/A (First Mile)",
+    "fpsCodeExtracted": "N/A",
+    "gpsType": "Demonstration fixture benchmark coordinates (GS-GNR-01: 23.2200, 72.6450)",
+    "geofenceDist": "21594.47m (fail)",
+    "tripStatus": "completed",
+    "auditAction": "first_mile_epod_completed"
+  },
+  {
+    "checkpoint": "3. GSCSCL Departure (Last Mile)",
+    "tripCode": "TRIP-LIVE-LM-1793812231683",
+    "evidenceId": "32fa27fb-2165-48d7-a328-286c8093cca0",
+    "imageSource": "Actual image submitted (cp3_gscscl_departure.jpg)",
+    "assignedPlate": "GJ01CD5678",
+    "detectedPlate": null,
+    "ocrDecision": "manual_review",
+    "fpsCodeExpected": "FPS-AMD-001 (Destination)",
+    "fpsCodeExtracted": "N/A (Departure stage)",
+    "gpsType": "Demonstration fixture benchmark coordinates (GS-GNR-01: 23.2200, 72.6450)",
+    "geofenceDist": "22999.5m (fail)",
+    "tripStatus": "in_transit",
+    "auditAction": "last_mile_departure_verified"
+  },
+  {
+    "checkpoint": "4. Fair Price Shop e-POD (Last Mile)",
+    "tripCode": "TRIP-LIVE-LM-1793812231683",
+    "evidenceId": "e6aa111e-7c3a-4cf5-9347-e26d66779009",
+    "imageSource": "Actual image submitted (cp4_fps_delivery.jpg)",
+    "assignedPlate": "GJ01CD5678",
+    "detectedPlate": null,
+    "ocrDecision": "manual_review",
+    "fpsCodeExpected": "FPS-AMD-001",
+    "fpsCodeExtracted": "",
+    "gpsType": "Demonstration fixture benchmark coordinates (FPS-AMD-001: 23.0250, 72.5700)",
+    "geofenceDist": "0m (pass)",
+    "tripStatus": "completed",
+    "auditAction": "last_mile_epod_completed"
+  }
+]

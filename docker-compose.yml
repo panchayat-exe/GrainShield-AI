@@ -1,0 +1,89 @@
+# ============================================================
+# GrainShield AI — Docker Compose (Local Development / Self-Hosted)
+# ============================================================
+# Usage:
+#   cp ai-model/.env.example  ai-model/.env     # fill real values
+#   cp ai-worker/.env.example ai-worker/.env    # fill real values
+#   docker compose up --build
+#
+# Production note:
+#   For production, use proper secret management (Vault, AWS Secrets Manager,
+#   etc.) and do NOT rely on env_file with plaintext files on disk.
+# ============================================================
+
+services:
+
+  # ── AI Computer Vision Service ────────────────────────────
+  ai-inference:
+    build:
+      context: ./ai-model
+      dockerfile: Dockerfile
+    image: grainshield-ai-model:latest
+    container_name: grainshield-ai-model
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - CV_API_KEY=${CV_API_KEY:-}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,http://localhost:3001,http://localhost:8080}
+      - ENVIRONMENT=${ENVIRONMENT:-development}
+      - MAX_FILE_SIZE_BYTES=10485760
+    volumes:
+      # Mount weights directory read-only so the container cannot modify them
+      - ./ai-model/weights:/app/weights:ro
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')",
+        ]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      retries: 3
+    networks:
+      - grainshield
+
+  # ── AI Processing Worker ──────────────────────────────────
+  ai-worker:
+    build:
+      context: ./ai-worker
+      dockerfile: Dockerfile
+    image: grainshield-ai-worker:latest
+    container_name: grainshield-ai-worker
+    restart: unless-stopped
+    environment:
+      - SUPABASE_URL=${SUPABASE_URL}
+      - SUPABASE_SERVICE_ROLE_KEY=${SUPABASE_SERVICE_ROLE_KEY}
+      - CV_PROVIDER=http
+      - CV_API_URL=http://ai-inference:8000/verify
+      - CV_API_KEY=${CV_API_KEY:-}
+      - POLL_INTERVAL_MS=15000
+      - MAX_RETRIES=3
+      - PROCESSING_TIMEOUT_MS=90000
+    # Worker connects to Supabase (external) and ai-model (internal)
+    depends_on:
+      ai-inference:
+        condition: service_healthy
+    networks:
+      - grainshield
+
+networks:
+  grainshield:
+    driver: bridge
+
+# ============================================================
+# Notes:
+#
+# Frontend & Admin Dashboard are static Vite builds and are
+# NOT containerised here — deploy them to a CDN / static host
+# (Vercel, Netlify, Cloudflare Pages, Firebase Hosting, etc.).
+#
+# Mobile (Expo) is built and distributed via Expo EAS Build /
+# the Play Store / TestFlight — it does not run in Docker.
+#
+# Supabase is the managed cloud database — no self-hosted
+# Supabase container is included. Connect via SUPABASE_URL.
+# ============================================================

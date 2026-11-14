@@ -1,62 +1,135 @@
 /**
- * Upload screen — main citizen workflow.
- * Mirrors web / (index) route.
+ * Driver Checkpoint Evidence Upload Screen — React Native.
  *
- * Features:
- * - Trip code + vehicle number + stage form with Zod validation
- * - expo-image-picker: camera capture OR gallery selection
- * - Photo preview with retake
- * - Uploads to Supabase Storage (private bucket)
- * - Creates pending verification record
- * - Navigates to /processing on success
+ * Implements Approved Option A:
+ * - Drivers do NOT create new citizen trips.
+ * - Drivers operate exclusively on authorized trips assigned to them.
+ * - Captures checkpoint evidence (CP1-CP4) for the selected assigned trip.
+ * - If offline, queues the evidence in the offline outbox referencing the trip ID.
+ * - When online, uploads directly to Supabase Storage and triggers verification.
  */
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
-  View, Text, TextInput, TouchableOpacity, StyleSheet,
-  ScrollView, Image, ActivityIndicator, Alert, Platform,
+  View,
+  Text,
+  TouchableOpacity,
+  StyleSheet,
+  ScrollView,
+  Image,
+  ActivityIndicator,
+  Alert,
+  TextInput,
 } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import * as ImagePicker from "expo-image-picker";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
 import { AppHeader } from "@/components/AppHeader";
 import { OutboxBanner } from "@/components/OutboxBanner";
 import { Card } from "@/components/Card";
 import { useAuth } from "@/hooks/use-auth";
-import { upsertTrip } from "@/lib/services/trips";
+import { listMyTrips, getTripByCode } from "@/lib/services/trips";
 import { uploadEvidence } from "@/lib/services/evidence";
 import { createPendingVerification } from "@/lib/services/verification";
-import { saveToOutbox } from "@/lib/offline/outbox";
-import { uploadSchema, validatePhotoAsset } from "@/lib/validation";
-import type { TripStage } from "@/lib/supabase/types";
+import { saveEvidenceToOutbox } from "@/lib/offline/outbox";
+import { validatePhotoAsset } from "@/lib/validation";
+import type { Trip, TripStage } from "@/lib/supabase/types";
 import { Colors, FontSizes, Spacing, Radius } from "@/constants/colors";
 
 type PhotoAsset = ImagePicker.ImagePickerAsset;
 
-const STAGES: { label: string; value: TripStage }[] = [
-  { label: "First Mile", value: "first_mile" },
-  { label: "Last Mile", value: "last_mile" },
-];
+const CACHED_TRIPS_KEY = "@grainshield_assigned_trips";
 
-export default function UploadScreen() {
+export default function DriverUploadScreen() {
   const router = useRouter();
   const { user, isOffline } = useAuth();
 
-  const [tripCode, setTripCode] = useState("");
-  const [vehicleNumber, setVehicleNumber] = useState("");
-  const [stage, setStage] = useState<TripStage | "">("");
+  const [assignedTrips, setAssignedTrips] = useState<Trip[]>([]);
+  const [selectedTrip, setSelectedTrip] = useState<Trip | null>(null);
+  const [manualTripCode, setManualTripCode] = useState("");
+  const [searchingTrip, setSearchingTrip] = useState(false);
+  const [selectedCheckpoint, setSelectedCheckpoint] = useState<number>(1);
   const [photo, setPhoto] = useState<PhotoAsset | null>(null);
   const [submitting, setSubmitting] = useState(false);
+  const [loadingTrips, setLoadingTrips] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [photoError, setPhotoError] = useState<string | null>(null);
 
-  // ─── Photo selection ──────────────────────────────────────────────
+  // ── 1. Load assigned trips (with local offline cache) ─────────────────────
+  useEffect(() => {
+    async function fetchTrips() {
+      setLoadingTrips(true);
+      try {
+        if (!isOffline) {
+          const fresh = await listMyTrips();
+          if (fresh.length > 0) {
+            setAssignedTrips(fresh);
+            setSelectedTrip(fresh[0]);
+            await AsyncStorage.setItem(CACHED_TRIPS_KEY, JSON.stringify(fresh));
+            setLoadingTrips(false);
+            return;
+          }
+        }
+        // Fallback to cached trips for field operations
+        const cached = await AsyncStorage.getItem(CACHED_TRIPS_KEY);
+        if (cached) {
+          const parsed = JSON.parse(cached) as Trip[];
+          setAssignedTrips(parsed);
+          if (parsed.length > 0) setSelectedTrip(parsed[0]);
+        }
+      } catch (err) {
+        console.warn("[driver-upload] Error loading trips:", err);
+      } finally {
+        setLoadingTrips(false);
+      }
+    }
+
+    if (user) {
+      void fetchTrips();
+    }
+  }, [user, isOffline]);
+
+  // Adjust default checkpoint based on trip stage
+  useEffect(() => {
+    if (selectedTrip) {
+      if (selectedTrip.stage === "last_mile") {
+        setSelectedCheckpoint(3);
+      } else {
+        setSelectedCheckpoint(1);
+      }
+    }
+  }, [selectedTrip]);
+
+  // ── Search trip manually by code ─────────────────────────────────────────
+  async function handleSearchTripCode() {
+    if (!manualTripCode.trim()) return;
+    setSearchingTrip(true);
+    setError(null);
+    try {
+      const found = await getTripByCode(manualTripCode.trim());
+      if (found) {
+        setSelectedTrip(found);
+        setManualTripCode("");
+      } else {
+        setError(
+          `Trip ${manualTripCode.trim().toUpperCase()} not found or not assigned.`,
+        );
+      }
+    } catch {
+      setError("Failed to look up trip. Check connectivity.");
+    } finally {
+      setSearchingTrip(false);
+    }
+  }
+
+  // ── Photo selection ──────────────────────────────────────────────────────
   async function requestCameraPermission(): Promise<boolean> {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status !== "granted") {
       Alert.alert(
         "Camera Permission Required",
-        "Please allow camera access in Settings to capture trip photographs.",
-        [{ text: "OK" }]
+        "Please allow camera access in Settings to capture checkpoint photographs.",
+        [{ text: "OK" }],
       );
       return false;
     }
@@ -82,9 +155,8 @@ export default function UploadScreen() {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== "granted") {
       Alert.alert(
-        "Photo Library Permission Required",
+        "Permission Required",
         "Please allow photo library access in Settings.",
-        [{ text: "OK" }]
       );
       return;
     }
@@ -114,15 +186,12 @@ export default function UploadScreen() {
   }
 
   function handleReset() {
-    setTripCode("");
-    setVehicleNumber("");
-    setStage("");
     setPhoto(null);
     setError(null);
     setPhotoError(null);
   }
 
-  // ─── Submit ───────────────────────────────────────────────────────
+  // ── Submit Checkpoint Evidence ───────────────────────────────────────────
   async function handleSubmit() {
     setError(null);
     if (!user) {
@@ -130,31 +199,33 @@ export default function UploadScreen() {
       return;
     }
 
-    const parsed = uploadSchema.safeParse({
-      trip_code: tripCode,
-      vehicle_number: vehicleNumber,
-      stage,
-    });
-    if (!parsed.success) {
-      setError(parsed.error.errors[0]?.message ?? "Please fill in all required fields.");
+    if (!selectedTrip) {
+      setError("Please select or search for an assigned transport trip.");
       return;
     }
+
     if (!photo) {
-      setError("Please capture or select a photograph before submitting.");
+      setError(
+        "Please capture or select a checkpoint photograph before submitting.",
+      );
       return;
     }
 
     setSubmitting(true);
 
-    const queueOffline = async () => {
-      const fileName = photo.fileName ?? `photo_${Date.now()}.jpg`;
-      const mimeType = photo.mimeType ?? "image/jpeg";
-      const fileSize = photo.fileSize ?? 0;
+    const fileName =
+      photo.fileName ?? `cp${selectedCheckpoint}_${Date.now()}.jpg`;
+    const mimeType = photo.mimeType ?? "image/jpeg";
+    const fileSize = photo.fileSize ?? 0;
 
-      const { item, error: outboxError } = await saveToOutbox({
-        tripCode: parsed.data.trip_code,
-        vehicleNumber: parsed.data.vehicle_number,
-        stage: parsed.data.stage as TripStage,
+    // Offline queuing fallback
+    const queueOffline = async () => {
+      const { item, error: outboxError } = await saveEvidenceToOutbox({
+        tripId: selectedTrip.id,
+        tripCode: selectedTrip.trip_code,
+        vehicleNumber: selectedTrip.vehicle_number,
+        stage: selectedTrip.stage as TripStage,
+        checkpointNumber: selectedCheckpoint,
         sourcePhotoUri: photo.uri,
         originalFileName: fileName,
         mimeType,
@@ -169,19 +240,19 @@ export default function UploadScreen() {
       handleReset();
       Alert.alert(
         "📦 Saved to Offline Outbox",
-        `Trip ${item.tripCode} and evidence photograph have been stored safely on your device.\n\nWhen internet is restored, tap "Sync Now" in the outbox banner to upload to Supabase cloud.`,
+        `Checkpoint ${selectedCheckpoint} evidence for trip ${selectedTrip.trip_code} is stored locally. It will upload automatically when online.`,
         [
           {
-            text: "View Outbox / Processing",
+            text: "View Status",
             onPress: () => {
               router.push({
-                pathname: "/(app)/processing",
-                params: { outboxId: item.id },
+                pathname: "/(app)/trip",
+                params: { tripId: selectedTrip.id },
               });
             },
           },
           { text: "Done" },
-        ]
+        ],
       );
     };
 
@@ -195,69 +266,70 @@ export default function UploadScreen() {
     }
 
     try {
-      // 1. Upsert trip
-      const { trip, error: tripError } = await upsertTrip({
-        tripCode: parsed.data.trip_code,
-        vehicleNumber: parsed.data.vehicle_number,
-        stage: parsed.data.stage as TripStage,
-        userId: user.id,
-      });
-      if (tripError || !trip) {
-        console.warn("[upload] Network trip error, saving to outbox:", tripError);
-        await queueOffline();
-        return;
-      }
-
-      // 2. Upload evidence photograph
-      const fileName = photo.fileName ?? `photo_${Date.now()}.jpg`;
-      const mimeType = photo.mimeType ?? "image/jpeg";
-      const fileSize = photo.fileSize ?? 0;
-
-      const { evidence, error: evidenceError } = await uploadEvidence({
+      // 1. Upload evidence directly to existing assigned trip
+      const { evidence, error: uploadErr } = await uploadEvidence({
         uri: photo.uri,
         mimeType,
         fileSize,
         fileName,
-        tripId: trip.id,
-        stage: parsed.data.stage as TripStage,
+        tripId: selectedTrip.id,
+        stage: selectedTrip.stage as TripStage,
         userId: user.id,
       });
-      if (evidenceError || !evidence) {
-        console.warn("[upload] Network evidence upload error, saving to outbox:", evidenceError);
+
+      if (uploadErr || !evidence) {
+        console.warn(
+          "[upload] Direct upload failed, falling back to outbox:",
+          uploadErr,
+        );
         await queueOffline();
         return;
       }
 
-      // 3. Create pending verification record
+      // 2. Queue AI Verification
       const { error: verError } = await createPendingVerification({
-        tripId: trip.id,
+        tripId: selectedTrip.id,
         evidenceId: evidence.id,
-        expectedPlate: parsed.data.vehicle_number,
+        expectedPlate: selectedTrip.vehicle_number,
       });
+
       if (verError) {
-        console.warn("[upload] verification queue error:", verError);
+        console.warn("[upload] Verification queue notice:", verError);
       }
 
-      // 4. Navigate to processing
-      router.push({
-        pathname: "/(app)/processing",
-        params: { tripId: trip.id },
-      });
+      handleReset();
+      Alert.alert(
+        "✅ Evidence Uploaded",
+        `Checkpoint ${selectedCheckpoint} evidence submitted for Trip ${selectedTrip.trip_code}. AI verification initiated.`,
+        [
+          {
+            text: "View Trip",
+            onPress: () => {
+              router.push({
+                pathname: "/(app)/trip",
+                params: { tripId: selectedTrip.id },
+              });
+            },
+          },
+        ],
+      );
     } catch (err) {
-      console.warn("[upload] Exception during online submit, falling back to outbox:", err);
+      console.warn("[upload] Exception during upload, queuing offline:", err);
       await queueOffline();
     } finally {
       setSubmitting(false);
     }
   }
 
-  // ─── Auth gate ────────────────────────────────────────────────────
+  // ── Auth gate ────────────────────────────────────────────────────────────
   if (!user) {
     return (
       <SafeAreaView style={styles.safe}>
         <AppHeader />
         <View style={styles.authGate}>
-          <Text style={styles.authGateText}>You must be signed in to submit trip evidence.</Text>
+          <Text style={styles.authGateText}>
+            You must be signed in as an assigned driver.
+          </Text>
           <TouchableOpacity
             style={styles.saffronBtn}
             onPress={() => router.replace("/(auth)/login")}
@@ -269,70 +341,175 @@ export default function UploadScreen() {
     );
   }
 
+  const checkpointsForStage =
+    selectedTrip?.stage === "last_mile"
+      ? [
+          { number: 3, label: "CP3 — Godown Departure" },
+          { number: 4, label: "CP4 — Fair Price Shop Delivery" },
+        ]
+      : [
+          { number: 1, label: "CP1 — Mandi/Warehouse Departure" },
+          { number: 2, label: "CP2 — Godown Arrival" },
+        ];
+
   return (
     <SafeAreaView style={styles.safe} edges={["top"]}>
       <AppHeader />
       <OutboxBanner />
-      <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">
-        <Text style={styles.pageTitle}>Upload Photo for Verification</Text>
+      <ScrollView
+        contentContainerStyle={styles.content}
+        keyboardShouldPersistTaps="handled"
+      >
+        <Text style={styles.pageTitle}>Checkpoint Evidence</Text>
 
-        {/* ── Trip Details Card ── */}
-        <Card>
-          {error && (
-            <View style={styles.errorBox}>
-              <Text style={styles.errorText}>⚠ {error}</Text>
+        {error && (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>⚠ {error}</Text>
+          </View>
+        )}
+
+        {/* ── Assigned Trip Selection Card ── */}
+        <Card title="Assigned Transport Trip">
+          {loadingTrips ? (
+            <ActivityIndicator
+              color={Colors.saffron}
+              style={{ marginVertical: Spacing[2] }}
+            />
+          ) : assignedTrips.length > 0 ? (
+            <View style={{ gap: Spacing[2] }}>
+              <Text style={styles.label}>Select Assigned Trip:</Text>
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.tripChipRow}
+              >
+                {assignedTrips.map((t) => {
+                  const isSelected = selectedTrip?.id === t.id;
+                  return (
+                    <TouchableOpacity
+                      key={t.id}
+                      style={[
+                        styles.tripChip,
+                        isSelected && styles.tripChipActive,
+                      ]}
+                      onPress={() => setSelectedTrip(t)}
+                    >
+                      <Text
+                        style={[
+                          styles.tripChipCode,
+                          isSelected && styles.tripChipTextActive,
+                        ]}
+                      >
+                        {t.trip_code}
+                      </Text>
+                      <Text
+                        style={[
+                          styles.tripChipSub,
+                          isSelected && styles.tripChipTextActive,
+                        ]}
+                      >
+                        {t.vehicle_number}
+                      </Text>
+                    </TouchableOpacity>
+                  );
+                })}
+              </ScrollView>
             </View>
+          ) : (
+            <Text style={styles.noTripsText}>
+              No dispatched trips currently assigned to your account.
+            </Text>
           )}
 
-          <Text style={styles.label}>Trip ID <Text style={styles.required}>*</Text></Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. TRIP-1042"
-            placeholderTextColor={Colors.mutedForeground}
-            value={tripCode}
-            onChangeText={(t) => setTripCode(t.toUpperCase())}
-            autoCapitalize="characters"
-            editable={!submitting}
-          />
-
-          <Text style={styles.label}>Vehicle No. <Text style={styles.required}>*</Text></Text>
-          <TextInput
-            style={styles.input}
-            placeholder="e.g. GJ01AB1234"
-            placeholderTextColor={Colors.mutedForeground}
-            value={vehicleNumber}
-            onChangeText={(t) => setVehicleNumber(t.toUpperCase())}
-            autoCapitalize="characters"
-            editable={!submitting}
-          />
-
-          <Text style={styles.label}>Trip Stage <Text style={styles.required}>*</Text></Text>
-          <View style={styles.stageRow}>
-            {STAGES.map((s) => (
-              <TouchableOpacity
-                key={s.value}
-                style={[
-                  styles.stagePill,
-                  stage === s.value && styles.stagePillActive,
-                ]}
-                onPress={() => setStage(s.value)}
-                disabled={submitting}
-              >
-                <Text
-                  style={[
-                    styles.stagePillText,
-                    stage === s.value && styles.stagePillTextActive,
-                  ]}
-                >
-                  {s.label}
-                </Text>
-              </TouchableOpacity>
-            ))}
+          {/* Manual trip search if trip isn't listed */}
+          <View style={styles.manualSearchRow}>
+            <TextInput
+              style={styles.searchInput}
+              placeholder="Or enter Trip Code (e.g. GS-2026-100001)"
+              placeholderTextColor={Colors.mutedForeground}
+              value={manualTripCode}
+              onChangeText={setManualTripCode}
+              autoCapitalize="characters"
+            />
+            <TouchableOpacity
+              style={styles.searchBtn}
+              onPress={handleSearchTripCode}
+              disabled={searchingTrip}
+            >
+              {searchingTrip ? (
+                <ActivityIndicator size="small" color="#fff" />
+              ) : (
+                <Text style={styles.searchBtnText}>Find</Text>
+              )}
+            </TouchableOpacity>
           </View>
+
+          {/* Selected Trip Info Summary */}
+          {selectedTrip && (
+            <View style={styles.tripSummaryBox}>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Active Trip:</Text>
+                <Text style={styles.summaryCode}>{selectedTrip.trip_code}</Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Vehicle:</Text>
+                <Text style={styles.summaryVal}>
+                  {selectedTrip.vehicle_number}
+                </Text>
+              </View>
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Stage:</Text>
+                <Text style={styles.summaryVal}>
+                  {selectedTrip.stage === "first_mile"
+                    ? "First Mile (Mandi → Godown)"
+                    : selectedTrip.stage === "last_mile"
+                      ? "Last Mile (Godown → FPS)"
+                      : selectedTrip.stage}
+                </Text>
+              </View>
+              {selectedTrip.origin && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Route:</Text>
+                  <Text style={styles.summaryVal}>
+                    {selectedTrip.origin} → {selectedTrip.destination ?? "—"}
+                  </Text>
+                </View>
+              )}
+            </View>
+          )}
         </Card>
 
-        {/* ── Photo Upload Card ── */}
-        <Card title="Photograph">
+        {/* ── Checkpoint Selection Card ── */}
+        {selectedTrip && (
+          <Card title="Select Checkpoint">
+            <View style={{ gap: Spacing[2] }}>
+              {checkpointsForStage.map((cp) => {
+                const active = selectedCheckpoint === cp.number;
+                return (
+                  <TouchableOpacity
+                    key={cp.number}
+                    style={[styles.cpPill, active && styles.cpPillActive]}
+                    onPress={() => setSelectedCheckpoint(cp.number)}
+                  >
+                    <Text
+                      style={[styles.cpNumber, active && styles.cpTextActive]}
+                    >
+                      CP{cp.number}
+                    </Text>
+                    <Text
+                      style={[styles.cpLabel, active && styles.cpTextActive]}
+                    >
+                      {cp.label}
+                    </Text>
+                  </TouchableOpacity>
+                );
+              })}
+            </View>
+          </Card>
+        )}
+
+        {/* ── Checkpoint Photograph Upload Card ── */}
+        <Card title="Evidence Photograph">
           {photoError && (
             <View style={styles.errorBox}>
               <Text style={styles.errorText}>⚠ {photoError}</Text>
@@ -385,15 +562,16 @@ export default function UploadScreen() {
           )}
 
           <View style={styles.infoBox}>
-            <Text style={styles.infoTitle}>⚠ Image Requirements</Text>
-            {[
-              "Image must be clear and in focus",
-              "Vehicle number plate must be visible",
-              "Photograph must be taken in daylight",
-              "File size should not exceed 10 MB",
-            ].map((req) => (
-              <Text key={req} style={styles.infoItem}>• {req}</Text>
-            ))}
+            <Text style={styles.infoTitle}>Field Evidence Standards</Text>
+            <Text style={styles.infoItem}>
+              • Photograph license plate clearly with vehicle body
+            </Text>
+            <Text style={styles.infoItem}>
+              • Ensure adequate lighting at checkpoint location
+            </Text>
+            <Text style={styles.infoItem}>
+              • Works offline: will buffer locally if out of reception
+            </Text>
           </View>
         </Card>
 
@@ -404,17 +582,24 @@ export default function UploadScreen() {
             onPress={handleReset}
             disabled={submitting}
           >
-            <Text style={styles.maroonBtnText}>Reset</Text>
+            <Text style={styles.maroonBtnText}>Clear</Text>
           </TouchableOpacity>
           <TouchableOpacity
-            style={[styles.saffronBtn, { flex: 1 }, submitting && styles.btnDisabled]}
+            style={[
+              styles.saffronBtn,
+              { flex: 1 },
+              (!selectedTrip || !photo || submitting) && styles.btnDisabled,
+            ]}
             onPress={handleSubmit}
-            disabled={submitting}
+            disabled={!selectedTrip || !photo || submitting}
           >
-            {submitting
-              ? <ActivityIndicator color={Colors.saffronForeground} />
-              : <Text style={styles.saffronBtnText}>Submit</Text>
-            }
+            {submitting ? (
+              <ActivityIndicator color={Colors.saffronForeground} />
+            ) : (
+              <Text style={styles.saffronBtnText}>
+                {isOffline ? "Save to Outbox" : "Submit Evidence"}
+              </Text>
+            )}
           </TouchableOpacity>
         </View>
       </ScrollView>
@@ -430,39 +615,119 @@ const styles = StyleSheet.create({
     fontWeight: "800",
     color: Colors.foreground,
   },
-  label: { fontSize: FontSizes.sm, fontWeight: "600", color: Colors.foreground, marginTop: Spacing[2] },
-  required: { color: Colors.danger },
-  input: {
-    height: 48,
-    borderRadius: Radius.lg,
-    borderWidth: 1,
-    borderColor: Colors.input,
-    backgroundColor: Colors.background,
-    paddingHorizontal: Spacing[3],
-    fontSize: FontSizes.sm,
-    color: Colors.foreground,
-    marginTop: 4,
+  label: {
+    fontSize: FontSizes.xs,
+    fontWeight: "600",
+    color: Colors.mutedForeground,
   },
-  stageRow: { flexDirection: "row", gap: Spacing[2], marginTop: Spacing[2] },
-  stagePill: {
-    flex: 1,
+  tripChipRow: { flexDirection: "row", marginVertical: 4 },
+  tripChip: {
+    paddingHorizontal: Spacing[3],
     paddingVertical: Spacing[2],
     borderRadius: Radius.lg,
     borderWidth: 1,
     borderColor: Colors.border,
-    alignItems: "center",
     backgroundColor: Colors.card,
+    marginRight: Spacing[2],
+    minWidth: 120,
   },
-  stagePillActive: { backgroundColor: Colors.saffron, borderColor: Colors.saffron },
-  stagePillText: { fontSize: FontSizes.sm, color: Colors.mutedForeground, fontWeight: "600" },
-  stagePillTextActive: { color: Colors.saffronForeground },
+  tripChipActive: {
+    borderColor: Colors.saffron,
+    backgroundColor: Colors.saffron,
+  },
+  tripChipCode: {
+    fontSize: FontSizes.sm,
+    fontWeight: "700",
+    color: Colors.foreground,
+  },
+  tripChipSub: { fontSize: FontSizes.xs, color: Colors.mutedForeground },
+  tripChipTextActive: { color: Colors.saffronForeground },
+  noTripsText: {
+    fontSize: FontSizes.xs,
+    color: Colors.mutedForeground,
+    fontStyle: "italic",
+  },
+  manualSearchRow: {
+    flexDirection: "row",
+    gap: Spacing[2],
+    marginTop: Spacing[2],
+  },
+  searchInput: {
+    flex: 1,
+    height: 40,
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.input,
+    paddingHorizontal: Spacing[3],
+    fontSize: FontSizes.xs,
+    color: Colors.foreground,
+    backgroundColor: Colors.background,
+  },
+  searchBtn: {
+    backgroundColor: Colors.info,
+    paddingHorizontal: Spacing[4],
+    borderRadius: Radius.md,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  searchBtnText: { color: "#fff", fontWeight: "700", fontSize: FontSizes.xs },
+  tripSummaryBox: {
+    marginTop: Spacing[3],
+    padding: Spacing[3],
+    borderRadius: Radius.md,
+    backgroundColor: Colors.background,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    gap: 4,
+  },
+  summaryRow: { flexDirection: "row", justifyContent: "space-between" },
+  summaryLabel: { fontSize: FontSizes.xs, color: Colors.mutedForeground },
+  summaryCode: {
+    fontSize: FontSizes.xs,
+    fontWeight: "800",
+    color: Colors.saffron,
+  },
+  summaryVal: {
+    fontSize: FontSizes.xs,
+    fontWeight: "600",
+    color: Colors.foreground,
+  },
+  cpPill: {
+    flexDirection: "row",
+    alignItems: "center",
+    padding: Spacing[3],
+    borderRadius: Radius.md,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    backgroundColor: Colors.card,
+    gap: Spacing[3],
+  },
+  cpPillActive: {
+    borderColor: Colors.saffron,
+    backgroundColor: Colors.warningSoft,
+  },
+  cpNumber: {
+    fontSize: FontSizes.sm,
+    fontWeight: "800",
+    color: Colors.foreground,
+    backgroundColor: Colors.border,
+    paddingHorizontal: 8,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  cpLabel: { fontSize: FontSizes.sm, color: Colors.foreground, flex: 1 },
+  cpTextActive: { color: Colors.foreground, fontWeight: "700" },
   preview: {
     width: "100%",
     aspectRatio: 4 / 3,
     borderRadius: Radius.lg,
     marginBottom: Spacing[2],
   },
-  photoActionRow: { flexDirection: "row", gap: Spacing[2], marginTop: Spacing[2] },
+  photoActionRow: {
+    flexDirection: "row",
+    gap: Spacing[2],
+    marginTop: Spacing[2],
+  },
   cameraBtn: {
     borderRadius: Radius.lg,
     borderWidth: 2,
@@ -474,7 +739,11 @@ const styles = StyleSheet.create({
     gap: 4,
   },
   cameraBtnIcon: { fontSize: 28 },
-  cameraBtnText: { fontSize: FontSizes.sm, fontWeight: "600", color: Colors.info },
+  cameraBtnText: {
+    fontSize: FontSizes.sm,
+    fontWeight: "600",
+    color: Colors.info,
+  },
   outlineBtn: {
     height: 44,
     borderRadius: Radius.lg,
@@ -483,7 +752,11 @@ const styles = StyleSheet.create({
     alignItems: "center",
     justifyContent: "center",
   },
-  outlineBtnText: { fontSize: FontSizes.sm, color: Colors.foreground, fontWeight: "600" },
+  outlineBtnText: {
+    fontSize: FontSizes.sm,
+    color: Colors.foreground,
+    fontWeight: "600",
+  },
   infoBox: {
     marginTop: Spacing[3],
     backgroundColor: Colors.warningSoft,
@@ -493,31 +766,57 @@ const styles = StyleSheet.create({
     padding: Spacing[3],
     gap: 4,
   },
-  infoTitle: { fontSize: FontSizes.sm, fontWeight: "700", color: Colors.warning, marginBottom: 4 },
-  infoItem: { fontSize: FontSizes.sm, color: Colors.foreground },
+  infoTitle: {
+    fontSize: FontSizes.xs,
+    fontWeight: "700",
+    color: Colors.warning,
+    marginBottom: 2,
+  },
+  infoItem: { fontSize: FontSizes.xs, color: Colors.foreground },
   actionRow: { flexDirection: "row", gap: Spacing[3] },
   saffronBtn: {
-    height: 48, borderRadius: Radius.lg, backgroundColor: Colors.saffron,
-    alignItems: "center", justifyContent: "center",
+    height: 48,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.saffron,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  saffronBtnText: { color: Colors.saffronForeground, fontWeight: "700", fontSize: FontSizes.base },
+  saffronBtnText: {
+    color: Colors.saffronForeground,
+    fontWeight: "700",
+    fontSize: FontSizes.base,
+  },
   maroonBtn: {
-    height: 48, borderRadius: Radius.lg, backgroundColor: Colors.maroon,
-    alignItems: "center", justifyContent: "center",
+    height: 48,
+    borderRadius: Radius.lg,
+    backgroundColor: Colors.maroon,
+    alignItems: "center",
+    justifyContent: "center",
   },
-  maroonBtnText: { color: Colors.maroonForeground, fontWeight: "700", fontSize: FontSizes.base },
+  maroonBtnText: {
+    color: Colors.maroonForeground,
+    fontWeight: "700",
+    fontSize: FontSizes.base,
+  },
   btnDisabled: { opacity: 0.6 },
   errorBox: {
-    backgroundColor: Colors.dangerSoft, borderWidth: 1,
-    borderColor: Colors.danger, borderRadius: Radius.md, padding: Spacing[3],
+    backgroundColor: Colors.dangerSoft,
+    borderWidth: 1,
+    borderColor: Colors.danger,
+    borderRadius: Radius.md,
+    padding: Spacing[3],
   },
   errorText: { color: Colors.danger, fontSize: FontSizes.sm },
   authGate: {
-    flex: 1, alignItems: "center", justifyContent: "center",
-    padding: Spacing[6], gap: Spacing[4],
+    flex: 1,
+    alignItems: "center",
+    justifyContent: "center",
+    padding: Spacing[6],
+    gap: Spacing[4],
   },
   authGateText: {
-    fontSize: FontSizes.base, color: Colors.mutedForeground,
+    fontSize: FontSizes.base,
+    color: Colors.mutedForeground,
     textAlign: "center",
   },
 });

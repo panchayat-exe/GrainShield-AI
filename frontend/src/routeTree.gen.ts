@@ -12,8 +12,11 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as FailedRouteImport } from './routes/failed'
 import { Route as ForgotPasswordRouteImport } from './routes/forgot-password'
+import { Route as HelpRouteImport } from './routes/help'
 import { Route as LoginRouteImport } from './routes/login'
+import { Route as MyTripsRouteImport } from './routes/my-trips'
 import { Route as ProcessingRouteImport } from './routes/processing'
+import { Route as ProfileRouteImport } from './routes/profile'
 import { Route as RegisterRouteImport } from './routes/register'
 import { Route as ResultRouteImport } from './routes/result'
 import { Route as TrackingRouteImport } from './routes/tracking'
@@ -35,14 +38,29 @@ const ForgotPasswordRoute = ForgotPasswordRouteImport.update({
   path: '/forgot-password',
   getParentRoute: () => rootRouteImport,
 } as any)
+const HelpRoute = HelpRouteImport.update({
+  id: '/help',
+  path: '/help',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
   path: '/login',
   getParentRoute: () => rootRouteImport,
 } as any)
+const MyTripsRoute = MyTripsRouteImport.update({
+  id: '/my-trips',
+  path: '/my-trips',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ProcessingRoute = ProcessingRouteImport.update({
   id: '/processing',
   path: '/processing',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProfileRoute = ProfileRouteImport.update({
+  id: '/profile',
+  path: '/profile',
   getParentRoute: () => rootRouteImport,
 } as any)
 const RegisterRoute = RegisterRouteImport.update({
@@ -75,8 +93,11 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/failed': typeof FailedRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/help': typeof HelpRoute
   '/login': typeof LoginRoute
+  '/my-trips': typeof MyTripsRoute
   '/processing': typeof ProcessingRoute
+  '/profile': typeof ProfileRoute
   '/register': typeof RegisterRoute
   '/result': typeof ResultRoute
   '/tracking': typeof TrackingRoute
@@ -87,8 +108,11 @@ export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/failed': typeof FailedRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/help': typeof HelpRoute
   '/login': typeof LoginRoute
+  '/my-trips': typeof MyTripsRoute
   '/processing': typeof ProcessingRoute
+  '/profile': typeof ProfileRoute
   '/register': typeof RegisterRoute
   '/result': typeof ResultRoute
   '/tracking': typeof TrackingRoute
@@ -100,8 +124,11 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/failed': typeof FailedRoute
   '/forgot-password': typeof ForgotPasswordRoute
+  '/help': typeof HelpRoute
   '/login': typeof LoginRoute
+  '/my-trips': typeof MyTripsRoute
   '/processing': typeof ProcessingRoute
+  '/profile': typeof ProfileRoute
   '/register': typeof RegisterRoute
   '/result': typeof ResultRoute
   '/tracking': typeof TrackingRoute
@@ -114,8 +141,11 @@ export interface FileRouteTypes {
     | '/'
     | '/failed'
     | '/forgot-password'
+    | '/help'
     | '/login'
+    | '/my-trips'
     | '/processing'
+    | '/profile'
     | '/register'
     | '/result'
     | '/tracking'
@@ -126,8 +156,11 @@ export interface FileRouteTypes {
     | '/'
     | '/failed'
     | '/forgot-password'
+    | '/help'
     | '/login'
+    | '/my-trips'
     | '/processing'
+    | '/profile'
     | '/register'
     | '/result'
     | '/tracking'
@@ -138,8 +171,11 @@ export interface FileRouteTypes {
     | '/'
     | '/failed'
     | '/forgot-password'
+    | '/help'
     | '/login'
+    | '/my-trips'
     | '/processing'
+    | '/profile'
     | '/register'
     | '/result'
     | '/tracking'
@@ -151,8 +187,11 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   FailedRoute: typeof FailedRoute
   ForgotPasswordRoute: typeof ForgotPasswordRoute
+  HelpRoute: typeof HelpRoute
   LoginRoute: typeof LoginRoute
+  MyTripsRoute: typeof MyTripsRoute
   ProcessingRoute: typeof ProcessingRoute
+  ProfileRoute: typeof ProfileRoute
   RegisterRoute: typeof RegisterRoute
   ResultRoute: typeof ResultRoute
   TrackingRoute: typeof TrackingRoute
@@ -183,6 +222,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ForgotPasswordRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/help': {
+      id: '/help'
+      path: '/help'
+      fullPath: '/help'
+      preLoaderRoute: typeof HelpRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/login': {
       id: '/login'
       path: '/login'
@@ -190,11 +236,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/my-trips': {
+      id: '/my-trips'
+      path: '/my-trips'
+      fullPath: '/my-trips'
+      preLoaderRoute: typeof MyTripsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/processing': {
       id: '/processing'
       path: '/processing'
       fullPath: '/processing'
       preLoaderRoute: typeof ProcessingRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/profile': {
+      id: '/profile'
+      path: '/profile'
+      fullPath: '/profile'
+      preLoaderRoute: typeof ProfileRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/register': {
@@ -239,8 +299,11 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   FailedRoute: FailedRoute,
   ForgotPasswordRoute: ForgotPasswordRoute,
+  HelpRoute: HelpRoute,
   LoginRoute: LoginRoute,
+  MyTripsRoute: MyTripsRoute,
   ProcessingRoute: ProcessingRoute,
+  ProfileRoute: ProfileRoute,
   RegisterRoute: RegisterRoute,
   ResultRoute: ResultRoute,
   TrackingRoute: TrackingRoute,

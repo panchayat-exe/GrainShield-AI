@@ -46,7 +46,8 @@ const CV_API_URL = process.env.CV_API_URL ?? "";
 const CV_API_KEY = process.env.CV_API_KEY ?? "";
 const POLL_INTERVAL_MS = Number(process.env.POLL_INTERVAL_MS ?? "15000");
 const MAX_RETRIES = Number(process.env.MAX_RETRIES ?? "3");
-const PROCESSING_TIMEOUT_MS = Number(process.env.PROCESSING_TIMEOUT_MS ?? "30000");
+const PROCESSING_TIMEOUT_MS = Number(process.env.PROCESSING_TIMEOUT_MS ?? "90000");
+const WORKER_ID = "worker-" + process.pid + "-" + Date.now();
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   console.error(
@@ -94,7 +95,7 @@ const adminClient = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
  * @property {boolean|null} plateMatch
  * @property {string|null} vehicleType
  * @property {number|null} confidence - 0.0 to 1.0
- * @property {string} decision - 'pass'|'retake'|'manual_review'|'error'
+ * @property {string} decision - 'pass'|'fail'|'retake'|'manual_review'|'error'
  * @property {string} explanation
  * @property {string} processorVersion
  * @property {object|null} rawOutput
@@ -136,7 +137,7 @@ function validateCVResponse(data) {
     };
   }
 
-  const validDecisions = ["pass", "retake", "manual_review", "error"];
+  const validDecisions = ["pass", "fail", "retake", "manual_review", "error"];
   const decision = typeof data.decision === "string" ? data.decision.toLowerCase() : null;
 
   if (!decision || !validDecisions.includes(decision)) {
@@ -290,23 +291,11 @@ async function downloadEvidence(storagePath) {
 // Core job processor
 // ------------------------------------
 async function processVerification(verification) {
-  const { id, trip_id, evidence_id, expected_plate } = verification;
+  const { id, trip_id, evidence_id } = verification;
   console.log(`[worker] Processing verification ${id} for trip ${trip_id}`);
 
-  // Mark as processing (prevent double-pickup)
-  const { error: markError } = await adminClient
-    .from("verification_results")
-    .update({
-      status: "processing",
-      processing_started_at: new Date().toISOString(),
-    })
-    .eq("id", id)
-    .eq("status", "pending"); // Idempotency guard
-
-  if (markError) {
-    console.warn(`[worker] Could not mark ${id} as processing:`, markError.message);
-    return; // Another worker may have picked it up
-  }
+  // The atomic claim_pending_verification RPC has already changed
+  // this job to processing and assigned it to this worker.
 
   // Fetch parent trip to obtain the actual assigned vehicle number and stage
   const { data: tripRow, error: tripErr } = await adminClient
@@ -315,8 +304,28 @@ async function processVerification(verification) {
     .eq("id", trip_id)
     .single();
 
-  if (tripErr) {
-    console.warn(`[worker] Could not fetch trip ${trip_id}:`, tripErr.message);
+  if (tripErr || !tripRow) {
+    const reason = tripErr?.message || "Trip record not found.";
+    await failVerification(
+      id,
+      trip_id,
+      `Cannot verify without the authoritative trip record: ${reason}`,
+    );
+    return;
+  }
+
+  const targetPlate =
+    typeof tripRow.vehicle_number === "string"
+      ? tripRow.vehicle_number.trim()
+      : "";
+
+  if (!targetPlate) {
+    await failVerification(
+      id,
+      trip_id,
+      "Trip has no assigned vehicle registration; refusing client-supplied fallback.",
+    );
+    return;
   }
 
   // Fetch evidence record (storage path and stage)
@@ -332,8 +341,7 @@ async function processVerification(verification) {
   }
 
   // Use the actual assigned vehicle number as primary comparison source
-  const targetPlate = tripRow?.vehicle_number || expected_plate || "";
-  const stage = tripRow?.stage || evidenceRow?.stage || null;
+  const stage = tripRow.stage || evidenceRow.stage || null;
 
   // Download image
   const imageBuffer = await downloadEvidence(evidenceRow.storage_path);
@@ -355,17 +363,18 @@ async function processVerification(verification) {
   const now = new Date().toISOString();
 
   // Map decision to verification_status
-  const verStatus =
-    cvResult.decision === "pass"
-      ? "pass"
-      : cvResult.decision === "retake"
-        ? "retake"
-        : cvResult.decision === "manual_review"
-          ? "manual_review"
-          : "error";
+  const verStatusByDecision = {
+    pass: "pass",
+    fail: "fail",
+    retake: "retake",
+    manual_review: "manual_review",
+    error: "error",
+  };
+
+  const verStatus = verStatusByDecision[cvResult.decision] ?? "error";
 
   // Update verification record
-  const { error: updateError } = await adminClient
+  const { data: updatedVerification, error: updateError } = await adminClient
     .from("verification_results")
     .update({
       status: verStatus,
@@ -381,21 +390,117 @@ async function processVerification(verification) {
       explanation: cvResult.explanation,
       processor_version: cvResult.processorVersion,
       processing_completed_at: now,
+      failed_at: verStatus === "error" ? now : null,
+      failure_reason:
+        verStatus === "error"
+          ? (cvResult.error ?? cvResult.explanation ?? "CV provider error")
+          : null,
       raw_output: cvResult.rawOutput ?? null,
+      claimed_by: null,
+      claimed_at: null,
     })
-    .eq("id", id);
+    .eq("id", id)
+    .eq("claimed_by", WORKER_ID)
+    .eq("status", "processing")
+    .select("id")
+    .maybeSingle();
 
   if (updateError) {
     console.error(`[worker] Failed to update verification ${id}:`, updateError.message);
     return;
   }
 
-  // Update trip status on verified outcomes
-  if (["pass", "retake", "manual_review"].includes(verStatus)) {
-    await adminClient
+  if (!updatedVerification) {
+    console.warn(`[worker] Job ${id} is no longer owned by ${WORKER_ID}; skipping trip update and audit.`);
+    return;
+  }
+
+  // A confirmed verification failure rejects the trip.
+  // Technical errors do not automatically change the trip status.
+  const tripStatus = verStatus === "fail" ? "rejected" : verStatus;
+
+  if (["pass", "fail", "retake", "manual_review"].includes(verStatus)) {
+    // Only update if trip is still open (submitted/processing).
+    // Prevents delayed AI worker from silently overwriting an officer's manual review decision.
+    const { error: tripUpdateError } = await adminClient
       .from("trips")
-      .update({ status: verStatus })
-      .eq("id", trip_id);
+      .update({ status: tripStatus })
+      .eq("id", trip_id)
+      .in("status", ["submitted", "processing"]);
+
+    if (tripUpdateError) {
+      console.error(
+        `[worker] Failed to update trip ${trip_id}:`,
+        tripUpdateError.message,
+      );
+    }
+  }
+
+  // When AI routes to manual_review, create a manual_review_requests row
+  // so officers can see and act on it in the admin dashboard.
+  // Idempotent: check for existing row first to avoid duplicates on retries.
+  if (verStatus === "manual_review") {
+    // Check if a review request already exists for this evidence
+    const { data: existingReview } = await adminClient
+      .from("manual_review_requests")
+      .select("id")
+      .eq("trip_id", trip_id)
+      .eq("evidence_id", evidence_id)
+      .maybeSingle();
+
+    if (!existingReview) {
+      // requested_by must reference auth.users — use the trip owner as requester
+      const { data: tripOwner } = await adminClient
+        .from("trips")
+        .select("created_by")
+        .eq("id", trip_id)
+        .maybeSingle();
+
+      const requestedBy = tripOwner?.created_by ?? null;
+
+      if (requestedBy) {
+        const { error: reviewInsertError } = await adminClient
+          .from("manual_review_requests")
+          .insert({
+            trip_id,
+            evidence_id,
+            requested_by: requestedBy,
+            user_notes: cvResult.explanation
+              ? `AI flagged: ${cvResult.explanation}`
+              : "AI could not automatically verify this trip. Manual officer review required.",
+            status: "pending",
+          });
+
+        if (reviewInsertError) {
+          // Non-fatal: log and continue — trip is still in manual_review status
+          console.warn(
+            `[worker] Could not create manual_review_requests for trip ${trip_id}:`,
+            reviewInsertError.message,
+          );
+        } else {
+          console.log(`[worker] Manual review request created for trip ${trip_id}`);
+          // Notify citizen: insert audit_log so useNotifications hook fires in citizen web app
+          await adminClient.from("audit_logs").insert({
+            actor_id: null,
+            action: "manual_review_requested",
+            entity_type: "manual_review_requests",
+            trip_id,
+            metadata: {
+              reason: cvResult.explanation ?? "AI could not automatically verify this trip.",
+              citizen_id: requestedBy,
+            },
+          }).then(({ error: auditErr }) => {
+            if (auditErr) {
+              console.warn("[worker] Could not write manual_review_requested audit log:", auditErr.message);
+            }
+          });
+        }
+      } else {
+        console.warn(`[worker] Trip ${trip_id} has no created_by — skipping review request insert`);
+      }
+    } else {
+      console.log(`[worker] Manual review request already exists for trip ${trip_id} / evidence ${evidence_id}`);
+    }
   }
 
   // Write comprehensive audit log
@@ -422,16 +527,90 @@ async function processVerification(verification) {
   );
 }
 
+
+// ------------------------------------
+// Dead-Letter Queue helper
+// ------------------------------------
+/**
+ * Inserts a failed-job record into public.failed_jobs (DLQ).
+ * Uses service-role key so it always succeeds regardless of RLS.
+ */
+async function insertFailedJob({ verificationId, tripId, errorMessage, jobStage = "unknown" }) {
+  // Check if an unresolved DLQ record already exists for this verification
+  const { data: existing } = await adminClient
+    .from("failed_jobs")
+    .select("id, retry_count")
+    .eq("verification_id", verificationId)
+    .is("resolved_at", null)
+    .maybeSingle();
+
+  if (existing) {
+    // Increment retry_count on the existing unresolved record
+    const newRetryCount = (existing.retry_count ?? 0) + 1;
+    const { error } = await adminClient
+      .from("failed_jobs")
+      .update({
+        retry_count: newRetryCount,
+        last_retry_at: new Date().toISOString(),
+        error_message: errorMessage,
+        worker_id: WORKER_ID,
+        job_stage: jobStage,
+      })
+      .eq("id", existing.id);
+    if (error) {
+      console.error("[worker] Could not update failed_jobs DLQ retry_count:", error.message);
+    } else {
+      console.log(`[worker] DLQ retry_count=${newRetryCount} for verification ${verificationId}`);
+    }
+  } else {
+    // First failure for this verification -- insert new DLQ record
+    const { error } = await adminClient.from("failed_jobs").insert({
+      verification_id: verificationId ?? null,
+      trip_id: tripId ?? null,
+      error_message: errorMessage,
+      worker_id: WORKER_ID,
+      job_stage: jobStage,
+      retry_count: 0,
+    });
+    if (error) {
+      console.error("[worker] Could not write to failed_jobs DLQ:", error.message);
+    } else {
+      console.log(`[worker] Dead-letter record created for verification ${verificationId}`);
+    }
+  }
+}
+
 async function failVerification(verificationId, tripId, reason) {
   console.error(`[worker] Failing verification ${verificationId}: ${reason}`);
-  await adminClient
-    .from("verification_results")
-    .update({
-      status: "error",
-      explanation: reason,
-      processing_completed_at: new Date().toISOString(),
-    })
-    .eq("id", verificationId);
+  const now = new Date().toISOString();
+
+  const { data: failedVerification, error: failureUpdateError } =
+    await adminClient
+      .from("verification_results")
+      .update({
+        status: "error",
+        explanation: reason,
+        failure_reason: reason,
+        failed_at: now,
+        processing_completed_at: now,
+        claimed_by: null,
+        claimed_at: null,
+      })
+      .eq("id", verificationId)
+      .eq("claimed_by", WORKER_ID)
+      .eq("status", "processing")
+      .select("id")
+      .maybeSingle();
+
+  if (failureUpdateError) {
+    console.error("[worker] Could not record failure:", failureUpdateError.message);
+    return;
+  }
+
+  if (!failedVerification) {
+    console.warn(`[worker] Failure update skipped; worker no longer owns ${verificationId}.`);
+    return;
+  }
 
   await adminClient.from("audit_logs").insert({
     actor_id: null,
@@ -441,36 +620,131 @@ async function failVerification(verificationId, tripId, reason) {
     trip_id: tripId,
     metadata: { status: "error", reason },
   });
+
+  // Write to dead-letter queue for operator visibility
+  await insertFailedJob({
+    verificationId,
+    tripId,
+    errorMessage: reason,
+    jobStage: "processing",
+  });
 }
 
 // ------------------------------------
 // Polling loop
 // ------------------------------------
-async function pollAndProcess() {
-  try {
-    // Fetch up to 5 pending verifications (oldest first, avoid thundering herd)
-    const { data: pending, error } = await adminClient
-      .from("verification_results")
-      .select("id, trip_id, evidence_id, expected_plate")
-      .eq("status", "pending")
-      .order("created_at", { ascending: true })
-      .limit(5);
+const MAX_JOBS_PER_POLL = 5;
+let pollInProgress = false;
 
-    if (error) {
-      console.error("[worker] Poll error:", error.message);
-      return;
+async function pollAndProcess() {
+  // Prevent overlapping polling cycles within this process.
+  if (pollInProgress) return;
+
+  pollInProgress = true;
+
+  try {
+    // ── Stall recovery: mark jobs stuck in 'processing' for > PROCESSING_TIMEOUT_MS ──
+    const stallCutoff = new Date(Date.now() - PROCESSING_TIMEOUT_MS).toISOString();
+    const { data: stalledJobs } = await adminClient
+      .from("verification_results")
+      .select("id, trip_id")
+      .eq("status", "processing")
+      .lt("claimed_at", stallCutoff);
+
+    if (stalledJobs?.length) {
+      console.warn(`[worker] Found ${stalledJobs.length} stalled job(s) — marking as error`);
+      for (const stalled of stalledJobs) {
+        const stallReason = `Job stalled in 'processing' for >${PROCESSING_TIMEOUT_MS}ms without completion`;
+        await adminClient
+          .from("verification_results")
+          .update({
+            status: "error",
+            explanation: stallReason,
+            failure_reason: stallReason,
+            processing_completed_at: new Date().toISOString(),
+            claimed_by: null,
+            claimed_at: null,
+          })
+          .eq("id", stalled.id)
+          .eq("status", "processing");
+
+        await insertFailedJob({
+          verificationId: stalled.id,
+          tripId: stalled.trip_id,
+          errorMessage: stallReason,
+          jobStage: "stall_recovery",
+        });
+      }
     }
 
-    if (!pending || pending.length === 0) return;
+    let claimedCount = 0;
 
-    console.log(`[worker] Found ${pending.length} pending verification(s)`);
+    // The RPC atomically claims one pending job per call.
+    for (let i = 0; i < MAX_JOBS_PER_POLL; i++) {
+      const { data: claimedJobs, error } = await adminClient.rpc(
+        "claim_pending_verification",
+        { p_worker_id: WORKER_ID },
+      );
 
-    // Process sequentially to avoid overloading the CV API
-    for (const verification of pending) {
-      await processVerification(verification);
+      if (error) {
+        console.error("[worker] Atomic claim RPC failed:", error.message);
+        return;
+      }
+
+      if (!Array.isArray(claimedJobs)) {
+        console.error("[worker] Unexpected response from claim RPC.");
+        return;
+      }
+
+      if (claimedJobs.length === 0) {
+        break;
+      }
+
+      const verification = claimedJobs[0];
+
+      if (!verification?.id || !verification?.trip_id || !verification?.evidence_id) {
+        console.error("[worker] Claim RPC returned an incomplete job.");
+        return;
+      }
+
+      claimedCount++;
+
+      console.log(
+        `[worker] Claimed job ${verification.id} for trip ${verification.trip_id} as ${WORKER_ID}`,
+      );
+
+      try {
+        await processVerification(verification);
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+
+        console.error(
+          `[worker] Unexpected processing error for ${verification.id}:`,
+          reason,
+        );
+
+        try {
+          await failVerification(
+            verification.id,
+            verification.trip_id,
+            reason,
+          );
+        } catch (failureErr) {
+          console.error(
+            "[worker] Could not record processing failure:",
+            failureErr instanceof Error ? failureErr.message : String(failureErr),
+          );
+        }
+      }
+    }
+
+    if (claimedCount > 0) {
+      console.log(`[worker] Poll cycle claimed ${claimedCount} job(s).`);
     }
   } catch (err) {
     console.error("[worker] Unhandled error in poll loop:", err);
+  } finally {
+    pollInProgress = false;
   }
 }
 

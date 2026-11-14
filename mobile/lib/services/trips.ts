@@ -5,6 +5,53 @@
 import { supabase } from "@/lib/supabase/client";
 import type { Trip, TripStage } from "@/lib/supabase/types";
 
+// ─── Citizen automatic trip creation ─────────────────────────────────────────
+
+/**
+ * Create a new citizen trip via the citizen_create_trip() SECURITY DEFINER RPC.
+ * The backend auto-generates a GS-YYYY-NNNNNN Trip ID.
+ * Citizens NEVER supply the Trip ID.
+ */
+export async function createCitizenTrip(params: {
+  vehicleNumber: string;
+  stage: TripStage;
+  origin?: string;
+  destination?: string;
+  commodity?: string;
+}): Promise<{ tripId: string; tripCode: string; error: string | null }> {
+  const { data, error } = await supabase.rpc("citizen_create_trip", {
+    p_vehicle_number: params.vehicleNumber.toUpperCase().trim(),
+    p_stage: params.stage,
+    p_origin: params.origin?.trim() ?? null,
+    p_destination: params.destination?.trim() ?? null,
+    p_origin_lat: null,
+    p_origin_lng: null,
+    p_destination_lat: null,
+    p_destination_lng: null,
+    p_commodity: params.commodity?.trim() ?? null,
+    p_quantity_kg: null,
+  });
+
+  if (error) {
+    console.error("[trips] createCitizenTrip RPC error:", error.message);
+    return { tripId: "", tripCode: "", error: error.message };
+  }
+
+  const result = data as {
+    success: boolean;
+    trip_id?: string;
+    trip_code?: string;
+    error?: string;
+  };
+
+  if (!result.success || !result.trip_id || !result.trip_code) {
+    const msg = result.error ?? "Failed to create trip — please try again.";
+    return { tripId: "", tripCode: "", error: msg };
+  }
+
+  return { tripId: result.trip_id, tripCode: result.trip_code, error: null };
+}
+
 export async function getTripByCode(tripCode: string): Promise<Trip | null> {
   const { data, error } = await supabase
     .from("trips")
@@ -42,8 +89,16 @@ export async function upsertTrip(params: {
 
   const existing = await getTripByCode(normalizedCode);
   if (existing) {
-    if (existing.created_by !== userId && existing.assigned_to !== userId) {
-      return { trip: null, error: "You are not authorized to submit evidence for this trip." };
+    // Also allow the driver who is assigned via driver_id column (migration 023)
+    if (
+      existing.created_by !== userId &&
+      existing.assigned_to !== userId &&
+      (existing as any).driver_id !== userId
+    ) {
+      return {
+        trip: null,
+        error: "You are not authorized to submit evidence for this trip.",
+      };
     }
     return { trip: existing, error: null };
   }
@@ -55,10 +110,17 @@ export async function upsertTrip(params: {
     created_by: userId,
     status: "submitted" as const,
   };
-  const { data, error } = await supabase.from("trips").insert(payload).select().single();
+  const { data, error } = await supabase
+    .from("trips")
+    .insert(payload)
+    .select()
+    .single();
   if (error) {
     console.error("[trips] upsertTrip insert:", error.message);
-    return { trip: null, error: "Failed to create trip record. Please try again." };
+    return {
+      trip: null,
+      error: "Failed to create trip record. Please try again.",
+    };
   }
   return { trip: data as Trip, error: null };
 }
@@ -77,9 +139,12 @@ export async function listMyTrips(): Promise<Trip[]> {
 
 export async function updateTripStatus(
   tripId: string,
-  status: Trip["status"]
+  status: Trip["status"],
 ): Promise<{ error: string | null }> {
-  const { error } = await supabase.from("trips").update({ status }).eq("id", tripId);
+  const { error } = await supabase
+    .from("trips")
+    .update({ status })
+    .eq("id", tripId);
   if (error) return { error: error.message };
   return { error: null };
 }

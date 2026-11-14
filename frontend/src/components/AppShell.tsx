@@ -1,5 +1,5 @@
 import { Link, useNavigate } from "@tanstack/react-router";
-import { useState, type ReactNode } from "react";
+import { useState, useEffect, type ReactNode } from "react";
 import {
   Landmark,
   Menu,
@@ -16,9 +16,13 @@ import { Toaster } from "@/components/ui/sonner";
 import { useAuth } from "@/hooks/use-auth";
 import { useNotifications } from "@/hooks/use-notifications";
 import { isSupabaseConfigured } from "@/lib/supabase";
+import { getLang, setLang, langToggleLabel, type Lang } from "@/lib/i18n";
 
 const nav = [
-  { to: "/", label: "Upload Photo" },
+  { to: "/", label: "Submit Trip" },
+  { to: "/my-trips", label: "My Trips" },
+  { to: "/profile", label: "My Profile" },
+  { to: "/help", label: "Help & FAQ" },
   { to: "/processing", label: "Verification" },
   { to: "/result", label: "Result (Pass)" },
   { to: "/failed", label: "Result (Failed)" },
@@ -39,6 +43,19 @@ export function AppShell({
 }) {
   const [open, setOpen] = useState(false);
   const [showNotifs, setShowNotifs] = useState(false);
+  // Start with "en" on both SSR and client; sync to localStorage after hydration
+  const [lang, setLangState] = useState<Lang>("en");
+
+  useEffect(() => {
+    const stored = getLang();
+    setLangState(stored);
+  }, []);
+
+  function handleLangToggle() {
+    const next: Lang = lang === "en" ? "gu" : "en";
+    setLang(next);
+    setLangState(next);
+  }
   const { user, profile, loading, signOut } = useAuth();
   const { notifications, unreadCount, markAllRead, dismiss } = useNotifications(user?.id ?? null);
   const navigate = useNavigate();
@@ -69,18 +86,26 @@ export function AppShell({
             <Landmark className="h-3.5 w-3.5" />
             Government of Gujarat
           </span>
-          <span>English</span>
+          <button
+            onClick={handleLangToggle}
+            className="rounded px-1.5 py-0.5 text-[11px] font-semibold opacity-90 hover:bg-white/20 transition-colors"
+            title="Switch language / ભાષા બદલો"
+          >
+            {langToggleLabel()}
+          </button>
         </div>
         <div className="flex items-center gap-3 px-4 pb-3">
-          <Wheat className="h-8 w-8 text-saffron" />
-          <div className="min-w-0 flex-1">
-            <p className="text-lg font-bold leading-none tracking-tight">
-              GRAINSHIELD <span className="text-saffron">AI</span>
-            </p>
-            <p className="truncate text-[11px] opacity-80">
-              AI-Powered Food Grain Transport Verification
-            </p>
-          </div>
+          <Link to="/" className="flex items-center gap-3 min-w-0 flex-1">
+            <Wheat className="h-8 w-8 text-saffron shrink-0" />
+            <div className="min-w-0">
+              <p className="text-lg font-bold leading-none tracking-tight">
+                GRAINSHIELD <span className="text-saffron">AI</span>
+              </p>
+              <p className="truncate text-[11px] opacity-80">
+                AI-Powered Food Grain Transport Verification
+              </p>
+            </div>
+          </Link>
           <div className="flex items-center gap-2">
             {/* Notification bell */}
             {user && (

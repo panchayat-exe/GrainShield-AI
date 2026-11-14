@@ -60,3 +60,32 @@ runs/
 ai-model/datasets/
 datasets/
 .cache/
+
+# -- Apps --------------------------------------------------
+apps/admin/.env
+apps/admin/.env.local
+apps/admin/.env.*.local
+
+# -- AI Model weights (large binary files, download separately) --
+ai-model/weights/*.pt
+ai-model/weights/*.onnx
+ai-model/weights/*.bin
+# Exception: keep the placeholder/base weights in git (small)
+!ai-model/weights/.gitkeep
+
+# -- Python test/validation artifacts --
+ai-model/validation/validation_results.json
+ai-model/.pytest_cache/
+ai-model/benchmark_results.csv
+ai-model/test_images/benchmark_results.csv
+
+*.bak
+ai-model/debug_*/
+
+
+# -- Mobile and AI model env files (I1 fix) --
+mobile/.env
+mobile/.env.local
+mobile/.env.*.local
+ai-model/.env
+ai-model/.env.local
