@@ -297,3 +297,12 @@ Not for public distribution.
 ---
 
 *GrainShield AI — Securing Gujarat's food grain supply chain through AI-powered verification.*
+
+
+---
+
+## 👥 Contributors & Core Team
+
+- **[Vansh Patil (@vanyexe)](https://github.com/vanyexe)** — Full-Stack & Core Platform
+- **[@panchayat-exe](https://github.com/panchayat-exe)** — Architecture & Backend
+- **[@prathmeshbole5-hub](https://github.com/prathmeshbole5-hub)** — Integration & Quality Assurance
